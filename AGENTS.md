@@ -27,7 +27,7 @@ Tagline: *"Your agent runs. TMA1 remembers."*
 | `server/internal/install/` | Download and verify GreptimeDB binary |
 | `server/internal/greptimedb/` | Start, stop, health-check GreptimeDB process + Flow init |
 | `server/internal/handler/` | HTTP handlers: /health, /status, /api/query, /v1/otlp/*, dashboard UI |
-| `server/web/` | Embedded dashboard (HTML + JS + CSS via embed.FS), 3 views: Claude Code, OpenClaw, OTel GenAI |
+| `server/web/` | Embedded dashboard (HTML + JS + CSS via embed.FS), 4 views: Claude Code, Codex, OpenClaw, OTel GenAI |
 | `site/` | Astro landing page → GitHub Pages → tma1.ai |
 | `.claude-plugin/` | Claude Code Marketplace registration |
 | `claude-plugin/` | Claude Code plugin: skills for setup + inline queries |
@@ -49,6 +49,7 @@ GreptimeDB  (managed by tma1-server)
     ▼
 Browser dashboard (served by tma1-server)
     ├── Claude Code view: Overview, Events, Cost, Search (from OTel metrics + logs)
+    ├── Codex view: Overview, Events, Cost, Search (from OTel logs with scope_name codex_*)
     ├── OpenClaw view: Overview, Traces, Cost, Search (from openclaw.* trace attrs)
     └── OTel GenAI view: Overview, Traces, Cost, Security, Search (from gen_ai.* trace attrs)
 ```
@@ -57,7 +58,7 @@ OTel data goes through tma1-server's OTLP proxy (`/v1/otlp/*`), which forwards t
 
 ## Data sources
 
-Three data paths, depending on the agent:
+Four data paths, depending on the agent:
 
 **Claude Code** → OTel metrics + logs (no traces):
 
@@ -72,6 +73,16 @@ Three data paths, depending on the agent:
 | `opentelemetry_logs` | Log events | api_request, api_error, tool_result, tool_decision, user_prompt |
 
 Log attributes are JSON. Use `json_get_string()`, `json_get_int()`, `json_get_float()` to extract fields (GreptimeDB does not support `->` / `->>`). Keys with dots (e.g., `session.id`) are interpreted as nested paths and cannot be extracted.
+
+**Codex** → OTel logs + metrics (no traces):
+
+| Table | Type | Content |
+|-------|------|---------|
+| `opentelemetry_logs` | Log events | Requests, tool results, decisions (scope_name LIKE 'codex_%') |
+| `codex_tokens_total` | Metric (counter) | Token counts by model + type |
+| Other `codex_*` tables | Metrics | Various counters/histograms auto-created from OTel metrics |
+
+Codex logs use `scope_name` (not `body`) as the event discriminator. Extract fields via `json_get_string(log_attributes, 'model')`, `json_get_int(log_attributes, 'input_token_count')`, etc.
 
 **OpenClaw** → OTel traces + metrics:
 
@@ -167,6 +178,7 @@ make test         # Run tests with race detector
 | Flow init logic | `server/internal/greptimedb/flows.go` |
 | HTTP routes | `server/internal/handler/handler.go` |
 | Dashboard UI | `server/web/index.html` |
+| Codex view JS | `server/web/js/codex.js` |
 | OpenClaw view JS | `server/web/js/openclaw.js` |
 | Embedded FS declaration | `server/web/web.go` |
 | Landing page | `site/src/pages/index.astro` |

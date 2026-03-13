@@ -71,7 +71,7 @@ export const en: T = {
     panel_title: 'How data is stored',
     panel_body: 'TMA1 stores traces and conversation logs on your local disk in <code>~/.tma1/data/</code>. Nothing is uploaded to remote services, and you can inspect or delete the data at any time.',
     cards: [
-      { title: 'No network calls', desc: 'After install, TMA1 doesn\u2019t contact any external service. All assets are bundled locally. No analytics, no crash reports, no update checks.' },
+      { title: 'No network calls', desc: 'After first launch (which downloads GreptimeDB once), TMA1 makes no further network calls. No analytics, no crash reports, no update checks.' },
       { title: 'Fully open source', desc: 'TMA1 is Apache-2.0. Read the code, audit the build, and run it air-gapped.' },
       { title: 'Single binary', desc: '<code>tma1-server</code> runs as one local process and manages its embedded storage engine. No Docker, no system packages, no runtime dependencies.' },
       { title: 'Your data, your disk', desc: 'Delete <code>~/.tma1/</code> and everything is gone. No orphaned cloud state, no remote accounts to close.' },
@@ -137,7 +137,7 @@ export const zh: T = {
     panel_title: '\u6570\u636e\u600e\u4e48\u5b58\u7684',
     panel_body: 'TMA1 \u4f1a\u628a trace \u548c\u5bf9\u8bdd\u65e5\u5fd7\u4fdd\u5b58\u5728\u672c\u5730 <code>~/.tma1/data/</code>\u3002\u6570\u636e\u4e0d\u4f1a\u4e0a\u4f20\u5230\u4efb\u4f55\u8fdc\u7a0b\u670d\u52a1\uff0c\u4f60\u53ef\u4ee5\u968f\u65f6\u67e5\u770b\u6216\u5220\u9664\u3002',
     cards: [
-      { title: '\u96f6\u7f51\u7edc\u8bf7\u6c42', desc: '\u5b89\u88c5\u5b8c\u6210\u540e\uff0cTMA1 \u4e0d\u8054\u7cfb\u4efb\u4f55\u5916\u90e8\u670d\u52a1\u3002\u6240\u6709\u8d44\u6e90\u5df2\u6253\u5305\u5728\u672c\u5730\u3002\u6ca1\u6709\u6570\u636e\u4e0a\u62a5\uff0c\u6ca1\u6709\u5d29\u6e83\u62a5\u544a\uff0c\u6ca1\u6709\u66f4\u65b0\u68c0\u67e5\u3002' },
+      { title: '\u96f6\u7f51\u7edc\u8bf7\u6c42', desc: '\u9996\u6b21\u542f\u52a8\u4f1a\u81ea\u52a8\u4e0b\u8f7d GreptimeDB\uff0c\u4e4b\u540e TMA1 \u4e0d\u518d\u8054\u7cfb\u4efb\u4f55\u5916\u90e8\u670d\u52a1\u3002\u6ca1\u6709\u6570\u636e\u4e0a\u62a5\uff0c\u6ca1\u6709\u5d29\u6e83\u62a5\u544a\uff0c\u6ca1\u6709\u66f4\u65b0\u68c0\u67e5\u3002' },
       { title: '\u5b8c\u5168\u5f00\u6e90', desc: 'TMA1 \u91c7\u7528 Apache-2.0\u3002\u4ee3\u7801\u53ef\u5ba1\u8ba1\uff0c\u6784\u5efa\u53ef\u68c0\u67e5\uff0c\u652f\u6301\u79bb\u7ebf\u8fd0\u884c\u3002' },
       { title: '\u5355\u4e00\u4e8c\u8fdb\u5236', desc: '<code>tma1-server</code> \u4ee5\u5355\u8fdb\u7a0b\u672c\u5730\u8fd0\u884c\uff0c\u5e76\u7ba1\u7406\u5185\u7f6e\u5b58\u50a8\u5f15\u64ce\u3002\u4e0d\u8981 Docker\uff0c\u4e0d\u8981\u7cfb\u7edf\u5305\uff0c\u6ca1\u6709\u8fd0\u884c\u65f6\u4f9d\u8d56\u3002' },
       { title: '\u4f60\u7684\u6570\u636e\uff0c\u4f60\u7684\u78c1\u76d8', desc: '\u5220\u6389 <code>~/.tma1/</code> \u5c31\u5168\u6ca1\u4e86\u3002\u6ca1\u6709\u6b8b\u7559\u7684\u4e91\u7aef\u72b6\u6001\uff0c\u6ca1\u6709\u8981\u6ce8\u9500\u7684\u8fdc\u7a0b\u8d26\u53f7\u3002' },
@@ -203,7 +203,7 @@ export const es: T = {
     panel_title: 'C\u00f3mo se almacenan los datos',
     panel_body: 'TMA1 guarda traces y logs de conversaci\u00f3n en tu disco local, en <code>~/.tma1/data/</code>. No se sube nada a servicios remotos y pod\u00e9s inspeccionar o borrar los datos cuando quieras.',
     cards: [
-      { title: 'Sin llamadas de red', desc: 'Despu\u00e9s de instalar, TMA1 no contacta ning\u00fan servicio externo. Todos los recursos est\u00e1n empaquetados localmente. Sin anal\u00edticas, sin reportes de error, sin chequeos de actualizaci\u00f3n.' },
+      { title: 'Sin llamadas de red', desc: 'Tras el primer inicio (que descarga GreptimeDB una sola vez), TMA1 no hace m\u00e1s llamadas de red. Sin anal\u00edticas, sin reportes de error, sin chequeos de actualizaci\u00f3n.' },
       { title: 'Completamente open source', desc: 'TMA1 usa licencia Apache-2.0. Le\u00e9 el c\u00f3digo, audit\u00e1 el build y corr\u00e9lo sin conexi\u00f3n.' },
       { title: 'Un solo binario', desc: '<code>tma1-server</code> corre como un \u00fanico proceso local y administra su motor de almacenamiento integrado. Sin Docker, sin paquetes del sistema, sin dependencias runtime.' },
       { title: 'Tus datos, tu disco', desc: 'Borr\u00e1 <code>~/.tma1/</code> y todo desaparece. Sin estado hu\u00e9rfano en la nube, sin cuentas remotas que cerrar.' },

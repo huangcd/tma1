@@ -182,7 +182,7 @@ PLIST
 setup_systemd() {
   local unit_dir="$HOME/.config/systemd/user"
   local unit_path="${unit_dir}/tma1-server.service"
-  local data_dir="${TMA1_DATA_DIR:-\$HOME/.tma1}"
+  local data_dir="${TMA1_DATA_DIR:-$HOME/.tma1}"
 
   # systemd --user requires XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS
   if ! systemctl --user status >/dev/null 2>&1; then
@@ -200,10 +200,10 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=%h/.tma1/bin/tma1-server
+ExecStart=${INSTALL_DIR}/tma1-server
 Restart=on-failure
 RestartSec=3
-Environment=TMA1_DATA_DIR=%h/.tma1
+Environment=TMA1_DATA_DIR=${data_dir}
 Environment=TMA1_PORT=${TMA1_PORT}
 
 [Install]
@@ -244,7 +244,7 @@ post_install() {
   echo "Configure your agent (e.g. Claude Code ~/.claude/settings.json):"
   echo ""
   echo '  "env": {'
-  echo '    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:14318/v1/otlp",'
+  echo "    \"OTEL_EXPORTER_OTLP_ENDPOINT\": \"http://localhost:${TMA1_PORT}/v1/otlp\","
   echo '    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",'
   echo '    "OTEL_METRICS_EXPORTER": "otlp",'
   echo '    "OTEL_LOGS_EXPORTER": "otlp"'
@@ -255,13 +255,13 @@ post_install() {
   echo '  [otel]'
   echo '  log_user_prompt = true'
   echo '  [otel.exporter.otlp-http]'
-  echo '  endpoint = "http://localhost:14318/v1/logs"'
+  echo "  endpoint = \"http://localhost:${TMA1_PORT}/v1/logs\""
   echo '  protocol = "binary"'
   echo '  [otel.trace_exporter.otlp-http]'
-  echo '  endpoint = "http://localhost:14318/v1/traces"'
+  echo "  endpoint = \"http://localhost:${TMA1_PORT}/v1/traces\""
   echo '  protocol = "binary"'
   echo '  [otel.metrics_exporter.otlp-http]'
-  echo '  endpoint = "http://localhost:14318/v1/metrics"'
+  echo "  endpoint = \"http://localhost:${TMA1_PORT}/v1/metrics\""
   echo '  protocol = "binary"'
   echo ""
   echo "Dashboard: http://localhost:${TMA1_PORT}"

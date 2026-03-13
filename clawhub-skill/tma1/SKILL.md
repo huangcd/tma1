@@ -87,6 +87,7 @@ TMA1 captures different data depending on the agent:
 | Agent | Data path | What it captures |
 | --- | --- | --- |
 | **Claude Code** | OTel metrics + logs | Token usage, cost, active time, tool decisions, API requests, user prompts |
+| **Codex** | OTel logs + traces + metrics | User prompts, LLM calls, tool executions, token usage (separate exporters for logs/traces/metrics) |
 | **OpenClaw** | OTel traces + metrics | LLM calls (model, tokens, cache), messages, webhooks, sessions, queue depth |
 | **Other (GenAI SDK)** | OTel traces | Token usage, cost, latency, conversations (GenAI semantic conventions) |
 
@@ -104,7 +105,7 @@ This task is NOT complete until all of the following are true:
 
 1. TMA1 binary is installed and running (`tma1-server` process)
 2. GreptimeDB is healthy at `http://localhost:14000/health`
-3. The user's agent is configured to send OTel data to `http://localhost:14318/v1/otlp`
+3. The user's agent is configured to send OTel data to TMA1 (endpoint depends on agent — see Step 3)
 4. Agent has been restarted (if applicable)
 5. Setup is verified (either `/status` returns ok, or the user confirms data is flowing)
 6. The user has been sent the handoff message
@@ -323,7 +324,8 @@ SHOW TABLES
 
 Check which tables exist:
 - `claude_code_cost_usage_USD_total` → Claude Code metrics
-- `opentelemetry_traces` → traces from OpenClaw or GenAI SDK
+- `codex_tokens_total` → Codex metrics
+- `opentelemetry_traces` → traces from Codex, OpenClaw, or GenAI SDK
 - `openclaw_tokens_total` → OpenClaw metrics
 
 ---
