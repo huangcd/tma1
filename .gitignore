@@ -19,6 +19,9 @@ Thumbs.db
 *.tmp
 tmp/
 
+# Local tools / scripts
+tools/
+
 # GreptimeDB local data (never commit)
 .tma1/
 
@@ -40,3 +43,7 @@ tma1-server-*.sha256sum
 site/dist/
 site/node_modules/
 site/.astro/
+
+# Synced from clawhub-skill/tma1/ via prebuild
+site/public/SKILL.md
+site/public/REFERENCE.md

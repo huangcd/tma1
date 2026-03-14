@@ -3,7 +3,7 @@ name: Deploy Site
 on:
   push:
     branches: [main]
-    paths: ['site/**']
+    paths: ['site/**', 'clawhub-skill/tma1/**']
 
 permissions:
   pages: write

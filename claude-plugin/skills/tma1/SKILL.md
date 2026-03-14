@@ -302,6 +302,84 @@ ORDER BY avg_ttft_ms DESC
 
 ---
 
+## GenAI Conversation Search (full-text)
+
+Requires the OTel SDK to capture conversation content into `opentelemetry_logs`.
+For Python with OpenAI, use `opentelemetry-instrumentation-openai-v2` and set
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`.
+
+The `openai_v2` instrumentation stores log bodies in these formats:
+- User prompt: `{"content":"..."}`
+- LLM completion: `{"message":{"role":"assistant","content":"..."}}`
+- Tool result: `{"content":"...","id":"call_..."}`
+- Tool call definition: `{"tool_calls":[...]}` (no displayable content)
+
+### Search conversations by keyword
+
+```sql
+SELECT timestamp, trace_id,
+  CASE
+    WHEN json_get_string(parse_json(body), 'message.role') IS NOT NULL
+      THEN json_get_string(parse_json(body), 'message.role')
+    WHEN json_get_string(parse_json(body), 'id') IS NOT NULL THEN 'tool'
+    WHEN json_get_string(parse_json(body), 'content') IS NOT NULL THEN 'user'
+    ELSE 'unknown'
+  END AS role,
+  COALESCE(
+    json_get_string(parse_json(body), 'message.content'),
+    json_get_string(parse_json(body), 'content')
+  ) AS content
+FROM opentelemetry_logs
+WHERE matches_term(body, 'your_keyword')
+ORDER BY timestamp DESC LIMIT 50
+```
+
+### Conversation replay by trace_id
+
+```sql
+SELECT timestamp,
+  CASE
+    WHEN json_get_string(parse_json(body), 'message.role') IS NOT NULL
+      THEN json_get_string(parse_json(body), 'message.role')
+    WHEN json_get_string(parse_json(body), 'id') IS NOT NULL THEN 'tool'
+    WHEN json_get_string(parse_json(body), 'content') IS NOT NULL THEN 'user'
+    ELSE 'unknown'
+  END AS role,
+  COALESCE(
+    json_get_string(parse_json(body), 'message.content'),
+    json_get_string(parse_json(body), 'content')
+  ) AS content
+FROM opentelemetry_logs
+WHERE trace_id = '<trace_id>'
+ORDER BY timestamp LIMIT 100
+```
+
+### Prompt injection scan
+
+```sql
+SELECT timestamp, trace_id,
+  json_get_string(parse_json(body), 'content') AS content
+FROM opentelemetry_logs
+WHERE trace_id != ''
+  AND json_get_string(parse_json(body), 'content') IS NOT NULL
+  AND json_get_string(parse_json(body), 'message.role') IS NULL
+  AND json_get_string(parse_json(body), 'id') IS NULL
+  AND (
+    body LIKE '%ignore%previous%instructions%'
+    OR body LIKE '%ignore%above%'
+    OR body LIKE '%disregard%previous%'
+    OR body LIKE '%reveal%system%prompt%'
+    OR body LIKE '%jailbreak%'
+    OR body LIKE '%DAN%mode%'
+    OR body LIKE '%bypass%safety%'
+    OR body LIKE '%[system]%'
+  )
+  AND timestamp > NOW() - INTERVAL '24 hours'
+ORDER BY timestamp DESC LIMIT 50
+```
+
+---
+
 ## GenAI Traces Queries (other agents)
 
 These queries only work when `opentelemetry_traces` exists with gen_ai.* attributes.
@@ -321,21 +399,27 @@ ORDER BY timestamp DESC
 LIMIT 20
 ```
 
-### Cost by model (from raw traces)
+### Cost by model (using TMA1's pricing table)
 
 ```sql
-SELECT "span_attributes.gen_ai.request.model" AS model,
-       ROUND(SUM(CASE
-         WHEN "span_attributes.gen_ai.request.model" LIKE '%claude-3-5-sonnet%' THEN
-           CAST("span_attributes.gen_ai.usage.input_tokens" AS DOUBLE)*3/1e6 + CAST("span_attributes.gen_ai.usage.output_tokens" AS DOUBLE)*15/1e6
-         WHEN "span_attributes.gen_ai.request.model" LIKE '%gpt-4o%' THEN
-           CAST("span_attributes.gen_ai.usage.input_tokens" AS DOUBLE)*2.5/1e6 + CAST("span_attributes.gen_ai.usage.output_tokens" AS DOUBLE)*10/1e6
-         ELSE CAST("span_attributes.gen_ai.usage.input_tokens" AS DOUBLE)*1/1e6 + CAST("span_attributes.gen_ai.usage.output_tokens" AS DOUBLE)*3/1e6
-       END), 4) AS cost_usd
-FROM opentelemetry_traces
-WHERE "span_attributes.gen_ai.system" IS NOT NULL
-  AND timestamp >= DATE_TRUNC('day', NOW())
-GROUP BY model
+-- Joins against tma1_model_pricing (seeded by tma1-server on first start).
+-- To see/edit pricing: SELECT * FROM tma1_model_pricing ORDER BY priority;
+SELECT t.model,
+       ROUND(SUM(
+         CAST(t.input_tok AS DOUBLE) * p.input_price / 1e6 +
+         CAST(t.output_tok AS DOUBLE) * p.output_price / 1e6
+       ), 4) AS cost_usd
+FROM (
+  SELECT "span_attributes.gen_ai.request.model" AS model,
+         "span_attributes.gen_ai.usage.input_tokens" AS input_tok,
+         "span_attributes.gen_ai.usage.output_tokens" AS output_tok
+  FROM opentelemetry_traces
+  WHERE "span_attributes.gen_ai.system" IS NOT NULL
+    AND timestamp >= DATE_TRUNC('day', NOW())
+) t
+JOIN tma1_model_pricing p
+  ON t.model LIKE CONCAT('%', p.model_pattern, '%')
+GROUP BY t.model
 ORDER BY cost_usd DESC
 ```
 
@@ -366,6 +450,20 @@ GROUP BY model
 ORDER BY errors DESC
 ```
 
+### Latency percentiles (p50 / p95)
+
+```sql
+SELECT "span_attributes.gen_ai.request.model" AS model,
+       ROUND(APPROX_PERCENTILE_CONT(duration_nano, 0.50) / 1000000.0, 0) AS p50_ms,
+       ROUND(APPROX_PERCENTILE_CONT(duration_nano, 0.95) / 1000000.0, 0) AS p95_ms,
+       COUNT(*) AS requests
+FROM opentelemetry_traces
+WHERE "span_attributes.gen_ai.system" IS NOT NULL
+  AND timestamp > NOW() - INTERVAL '24 hours'
+GROUP BY model
+ORDER BY p95_ms DESC
+```
+
 ---
 
 ## Step 4: Execute and format
@@ -383,5 +481,6 @@ After presenting results, suggest related queries the user might want:
 - "Should I check for API errors?"
 - "Want to see tool usage stats?"
 - "Want to compare sessions?"
+- "Want to scan for prompt injection attempts?"
 
 Remind the user that the full dashboard is available at http://localhost:14318.

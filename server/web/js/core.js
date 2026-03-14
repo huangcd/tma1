@@ -88,6 +88,7 @@ function fmtTime(ts) {
 
 function escapeHTML(s) {
   if (!s) return '';
+  if (typeof s !== 'string') s = Array.isArray(s) ? s.join(', ') : String(s);
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 

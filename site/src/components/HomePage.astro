@@ -11,11 +11,12 @@ const onboardingCmd = 'Read https://tma1.ai/SKILL.md and follow the instructions
 const curlCmd = 'curl -fsSL https://tma1.ai/install.sh | bash';
 
 // Screenshot pairs for showcase rows (cards 01-05)
+// padded: true → narrow crop, centered vertically with dashboard bg fill
 const showcase = [
   { dark: '/screenshots/cost-dark.webp', light: '/screenshots/cost-light.webp', w: 2926, h: 1698 },
   { dark: '/screenshots/tools-dark.webp', light: '/screenshots/tools-light.webp', w: 2926, h: 1698 },
-  { dark: '/screenshots/security-dark.webp', light: '/screenshots/security-light.webp', w: 2926, h: 1672 },
-  { dark: '/screenshots/traces-dark.webp', light: '/screenshots/traces-light.webp', w: 2926, h: 1672 },
+  { dark: '/screenshots/security-dark.webp', light: '/screenshots/security-light.webp', w: 2938, h: 664, padded: true },
+  { dark: '/screenshots/traces-dark.webp', light: '/screenshots/traces-light.webp', w: 2938, h: 1714 },
   { dark: '/screenshots/anomaly-dark.webp', light: '/screenshots/anomaly-light.webp', w: 2926, h: 1564 },
 ];
 ---
@@ -134,19 +135,21 @@ const showcase = [
             <p set:html={c.desc} />
           </div>
           <div class="showcase-image">
-            <div class="showcase-frame">
+            <div class={`showcase-frame${showcase[i].padded ? ' showcase-frame--padded' : ''}`}>
               <div class="browser-chrome">
                 <span class="dot red"></span>
                 <span class="dot yellow"></span>
                 <span class="dot green"></span>
                 <span class="browser-url">localhost:14318</span>
               </div>
-              <img class="theme-img"
-                data-dark-src={showcase[i].dark}
-                data-light-src={showcase[i].light}
-                src={showcase[i].dark}
-                alt={`TMA1 Dashboard — ${c.title}`}
-                loading="lazy" width={showcase[i].w} height={showcase[i].h} />
+              <div class="showcase-frame__body">
+                <img class="theme-img"
+                  data-dark-src={showcase[i].dark}
+                  data-light-src={showcase[i].light}
+                  src={showcase[i].dark}
+                  alt={`TMA1 Dashboard — ${c.title}`}
+                  loading="lazy" width={showcase[i].w} height={showcase[i].h} />
+              </div>
             </div>
           </div>
         </div>
@@ -254,6 +257,8 @@ const showcase = [
       </div>
     </details>
   </section>
+
+  <div class="lightbox" id="lightbox"><img src="" alt="" /></div>
 
   <footer>
     <p class="brand">TMA1<span class="cursor">_</span></p>
@@ -571,8 +576,15 @@ const showcase = [
   }
   .showcase-frame .browser-chrome { padding: 8px 12px; }
   .showcase-frame .browser-url { font-size: 10px; }
-  .showcase-frame img {
+  .showcase-frame__body { line-height: 0; }
+  .showcase-frame__body img {
     width: 100%; height: auto; display: block;
+  }
+  .showcase-frame--padded .showcase-frame__body {
+    display: flex;
+    align-items: center;
+    aspect-ratio: 2938 / 1200;
+    background: var(--bg);
   }
 
   /* Standalone feature card (Full-text search) */
@@ -653,6 +665,24 @@ const showcase = [
 
   /* Quickstart */
   .quickstart { padding: 60px 0; border-top: 1px solid var(--border); }
+
+  /* Lightbox */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0, 0, 0, 0.88);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+    cursor: zoom-out;
+  }
+  .lightbox.active { opacity: 1; pointer-events: auto; }
+  .lightbox img {
+    max-width: 100%; max-height: 100%;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+  .showcase-frame img, .hero-screenshot img { cursor: zoom-in; }
 
   /* Footer */
   footer {
@@ -761,6 +791,27 @@ const showcase = [
     document.querySelectorAll('details.dropdown').forEach(function(d) {
       if (!d.contains(e.target)) d.removeAttribute('open');
     });
+  });
+
+  // Lightbox
+  var lightbox = document.getElementById('lightbox');
+  var lightboxImg = lightbox.querySelector('img');
+  function openLightbox(src, alt) {
+    lightboxImg.src = src;
+    lightboxImg.alt = alt;
+    lightbox.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeLightbox() {
+    lightbox.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+  document.querySelectorAll('.showcase-frame img, .hero-screenshot img').forEach(function(img) {
+    img.addEventListener('click', function() { openLightbox(this.src, this.alt); });
+  });
+  lightbox.addEventListener('click', closeLightbox);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLightbox();
   });
 
   // Typing effect for hero hook

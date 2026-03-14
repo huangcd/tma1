@@ -76,7 +76,14 @@ func main() {
 		logger.Warn("seed pricing warning", "err", err)
 	}
 
-	// Step 5: start HTTP server (dashboard + API proxy).
+	// Step 5: initialize flow aggregations (background retry).
+	// Flows depend on opentelemetry_traces which is auto-created when the
+	// first trace arrives. Sink table DDL always succeeds (IF NOT EXISTS),
+	// but CREATE FLOW fails until the source table exists. We retry
+	// periodically so flows are created once trace data arrives.
+	go initFlowsWithRetry(cfg.GreptimeDBHTTPPort, logger)
+
+	// Step 6: start HTTP server (dashboard + API proxy).
 	srv := handler.New(cfg.GreptimeDBHTTPPort, cfg.Port, webFileSystem(), logger)
 	httpSrv := &http.Server{
 		Addr:         cfg.Host + ":" + cfg.Port,
@@ -112,4 +119,24 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("tma1-server stopped")
+}
+
+// initFlowsWithRetry attempts to create flow aggregations up to 10 times
+// (~5 minutes). Skips if all flows already exist. Only attempts creation
+// when GenAI trace data is present (flows depend on gen_ai.* columns).
+func initFlowsWithRetry(httpPort int, logger *slog.Logger) {
+	for i := 0; i < 10; i++ {
+		if greptimedb.FlowsReady(httpPort) {
+			logger.Info("all flows already exist, skipping init")
+			return
+		}
+		if greptimedb.HasGenAITraces(httpPort) {
+			logger.Info("GenAI trace data detected, creating flows")
+			greptimedb.InitFlows(httpPort, logger)
+			greptimedb.InitCostFlow(httpPort, logger)
+		}
+		if i < 9 {
+			time.Sleep(30 * time.Second)
+		}
+	}
 }

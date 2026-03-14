@@ -55,6 +55,67 @@ func InitFlows(httpPort int, logger *slog.Logger) error {
 	return nil
 }
 
+// expectedFlows is the set of flow names that should exist when fully initialized.
+var expectedFlows = map[string]struct{}{
+	"tma1_token_usage_flow": {},
+	"tma1_latency_flow":     {},
+	"tma1_status_flow":      {},
+	"tma1_cost_flow":        {},
+}
+
+// FlowsReady returns true if all expected flows already exist.
+func FlowsReady(httpPort int) bool {
+	sqlURL := fmt.Sprintf("http://localhost:%d/v1/sql", httpPort)
+	form := url.Values{}
+	form.Set("sql", "SHOW FLOWS")
+
+	resp, err := http.Post(sqlURL, "application/x-www-form-urlencoded", strings.NewReader(form.Encode())) //nolint:gosec
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	var result struct {
+		Output []struct {
+			Records struct {
+				Rows [][]string `json:"rows"`
+			} `json:"records"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+
+	found := make(map[string]struct{})
+	if len(result.Output) > 0 {
+		for _, row := range result.Output[0].Records.Rows {
+			if len(row) > 0 {
+				found[row[0]] = struct{}{}
+			}
+		}
+	}
+	for name := range expectedFlows {
+		if _, ok := found[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// HasGenAITraces returns true if opentelemetry_traces contains at least one
+// GenAI span (i.e. gen_ai.system is set). Returns false if the table does
+// not exist or has no GenAI data.
+func HasGenAITraces(httpPort int) bool {
+	sqlURL := fmt.Sprintf("http://localhost:%d/v1/sql", httpPort)
+	n, err := queryScalarInt(sqlURL,
+		`SELECT 1 FROM opentelemetry_traces WHERE "span_attributes.gen_ai.system" IS NOT NULL LIMIT 1`)
+	return err == nil && n > 0
+}
+
 // isFlowStatement returns true if the SQL statement is a CREATE FLOW statement.
 func isFlowStatement(stmt string) bool {
 	upper := strings.ToUpper(strings.TrimSpace(stmt))
@@ -125,6 +186,10 @@ var defaultPricing = []modelPrice{
 	{"gemini-2.5-flash", 201, 0.3, 2.5},
 	{"gemini-2.0-flash", 202, 0.1, 0.4},
 	{"gemini", 299, 0.3, 2.5},
+	{"deepseek-r1", 300, 0.55, 2.19},
+	{"deepseek-chat", 301, 0.27, 1.10},
+	{"deepseek-coder", 302, 0.14, 0.28},
+	{"deepseek", 399, 0.27, 1.10},
 }
 
 // SeedPricing inserts default model pricing if the table is empty.

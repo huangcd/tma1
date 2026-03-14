@@ -61,9 +61,9 @@ async function loadMetrics() {
     var reqVal = rows(reqRes)?.[0]?.[0];
     document.getElementById('val-requests').textContent = fmtNum(reqVal);
 
-    // p95 latency (raw trace range query)
+    // avg latency (raw trace range query)
     var latRes = await query(
-      "SELECT APPROX_PERCENTILE_CONT(duration_nano, 0.95) AS p95 " +
+      "SELECT AVG(duration_nano) AS avg_lat " +
       "FROM opentelemetry_traces " +
       "WHERE \"span_attributes.gen_ai.system\" IS NOT NULL " +
       "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "'"
@@ -324,8 +324,28 @@ async function loadTraceDetailData(traceId) {
     waterfallEl.innerHTML = '<div class="loading">' + t('error.load_spans') + '</div>';
   }
 
-  // Conversation replay not available for trace-based agents
-  convEl.innerHTML = '<div class="loading">' + t('empty.conv_not_available') + '</div>';
+  // Load conversation from opentelemetry_logs by trace_id
+  try {
+    var convRes = await query(
+      "SELECT body FROM opentelemetry_logs " +
+      "WHERE trace_id = '" + tid + "' ORDER BY timestamp LIMIT 100"
+    );
+    var messages = parseConversation(rowsToObjects(convRes));
+    if (messages.length > 0) {
+      convEl.innerHTML = messages.map(function(m) {
+        var cls = m.role === 'assistant' ? 'assistant' :
+                  m.role === 'system' ? 'system' :
+                  (m.role === 'tool' || m.role === 'function') ? 'tool' : 'user';
+        return '<div class="conv-msg conv-' + cls + '">' +
+          '<div class="conv-role">' + escapeHTML(m.role.toUpperCase()) + '</div>' +
+          '<div class="conv-content">' + escapeHTML(m.content) + '</div></div>';
+      }).join('');
+    } else {
+      convEl.innerHTML = '<div class="loading">' + t('empty.conv_not_available') + '</div>';
+    }
+  } catch {
+    convEl.innerHTML = '<div class="loading">' + t('empty.conv_not_available') + '</div>';
+  }
 }
 
 function renderWaterfall(container, spans) {
@@ -400,6 +420,124 @@ function closeTraceDetail() {
   var parent = document.querySelector('tr.active-trace');
   if (parent) parent.classList.remove('active-trace');
   if (row) row.remove();
+}
+
+// Parse conversation messages from log body rows, deduplicating cumulative re-sends.
+//
+// Two data formats exist:
+//  1) Cumulative arrays (GenAI semantic convention): each prompt event body is
+//     [{role,content},...] containing the FULL conversation so far. The last array
+//     is the most complete — use it as the base, then append trailing non-array
+//     events (e.g. final completion).
+//  2) Individual events (openai_v2): each span re-sends prior input messages.
+//     Completion outputs (with finish_reason) are unique per span and always kept.
+//     Input events (prompts, tool results) are deduplicated by role+content to
+//     remove cumulative re-sends.
+function parseConversation(logRows) {
+  // First pass: find the last array body (most complete conversation state)
+  var lastArrayIdx = -1;
+  var lastArray = null;
+  for (var i = 0; i < logRows.length; i++) {
+    if (!logRows[i].body) continue;
+    try {
+      var p = JSON.parse(logRows[i].body);
+      if (Array.isArray(p)) { lastArrayIdx = i; lastArray = p; }
+    } catch (e) {}
+  }
+
+  var messages = [];
+
+  if (lastArray) {
+    // Cumulative array mode: last array = complete conversation base
+    lastArray.forEach(function(msg) {
+      if (msg && typeof msg === 'object') {
+        var c = typeof msg.content === 'string' ? msg.content :
+                msg.content != null ? JSON.stringify(msg.content) : '';
+        if (c) messages.push({ role: (msg.role || 'user').toLowerCase(), content: c });
+      }
+    });
+    // Append non-array events after the last array (e.g. final completion)
+    for (var j = lastArrayIdx + 1; j < logRows.length; j++) {
+      if (!logRows[j].body) continue;
+      try {
+        var q = JSON.parse(logRows[j].body);
+        if (!q || typeof q !== 'object' || Array.isArray(q)) continue;
+        if (q.message && typeof q.message === 'object') {
+          var ct = typeof q.message.content === 'string' ? q.message.content : '';
+          if (ct) messages.push({ role: (q.message.role || 'assistant').toLowerCase(), content: ct });
+        }
+      } catch (e) {}
+    }
+  } else {
+    // Individual event mode: completion outputs always kept, inputs deduplicated
+    var seenInputs = {};
+    logRows.forEach(function(row) {
+      if (!row.body) return;
+      var parsed;
+      try { parsed = JSON.parse(row.body); } catch (e) { return; }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+
+      // Completion output (has finish_reason) — unique per span, always keep
+      if (parsed.finish_reason != null && parsed.message && typeof parsed.message === 'object') {
+        var content = typeof parsed.message.content === 'string' ? parsed.message.content : '';
+        if (content) messages.push({ role: (parsed.message.role || 'assistant').toLowerCase(), content: content });
+        return;
+      }
+
+      // Tool call definition only — skip
+      if (parsed.tool_calls && parsed.content == null) return;
+
+      // Input events: dedup by role+content to handle cumulative re-sends
+      var role, c;
+      if (parsed.content != null && parsed.id) {
+        role = 'tool';
+        c = typeof parsed.content === 'string' ? parsed.content : JSON.stringify(parsed.content);
+      } else if (parsed.content != null) {
+        role = (parsed.role || 'user').toLowerCase();
+        c = typeof parsed.content === 'string' ? parsed.content : JSON.stringify(parsed.content);
+      } else {
+        return;
+      }
+      if (!c) return;
+      var key = role + '\0' + c;
+      if (!seenInputs[key]) {
+        seenInputs[key] = true;
+        messages.push({ role: role, content: c });
+      }
+    });
+  }
+
+  return messages;
+}
+
+// Extract role + text from a single log body for search preview
+function parseSearchBody(body) {
+  if (!body) return { role: 'unknown', content: '' };
+  try {
+    var parsed = JSON.parse(body);
+    if (Array.isArray(parsed) && parsed.length) {
+      var last = parsed[parsed.length - 1];
+      if (last && last.content) {
+        return {
+          role: (last.role || 'user').toLowerCase(),
+          content: typeof last.content === 'string' ? last.content : JSON.stringify(last.content),
+        };
+      }
+    } else if (parsed && typeof parsed === 'object') {
+      if (parsed.message && parsed.message.content) {
+        return {
+          role: (parsed.message.role || 'assistant').toLowerCase(),
+          content: typeof parsed.message.content === 'string' ? parsed.message.content : JSON.stringify(parsed.message.content),
+        };
+      }
+      if (parsed.content != null) {
+        var c = typeof parsed.content === 'string' ? parsed.content : JSON.stringify(parsed.content);
+        var r = parsed.id ? 'tool' : (parsed.role || 'user');
+        return { role: r.toLowerCase(), content: c };
+      }
+    }
+  } catch (e) { /* not JSON */ }
+  return { role: 'unknown', content: body };
 }
 
 // ===================================================================
@@ -576,12 +714,9 @@ async function doSearch() {
   try {
     var safeTerm = escapeSQLString(term);
     var res = await query(
-      "SELECT timestamp, trace_id, span_name, " +
-      "\"span_attributes.gen_ai.request.model\" AS model, " +
-      "span_status_code " +
-      "FROM opentelemetry_traces " +
-      "WHERE (span_name LIKE '%" + safeTerm + "%' " +
-      "  OR \"span_attributes.gen_ai.request.model\" LIKE '%" + safeTerm + "%') " +
+      "SELECT timestamp, trace_id, body " +
+      "FROM opentelemetry_logs " +
+      "WHERE matches_term(body, '" + safeTerm + "') " +
       "  AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "' " +
       "ORDER BY timestamp DESC LIMIT 50"
     );
@@ -591,18 +726,21 @@ async function doSearch() {
       return;
     }
     el.innerHTML = data.map(function(d) {
+      var p = parseSearchBody(d.body);
+      var preview = (p.content || '').substring(0, 200);
+      if ((p.content || '').length > 200) preview += '...';
       return '<div class="search-result-item" onclick="switchToTrace(\'' + escapeHTML(d.trace_id) + '\')">' +
       '<div class="search-result-meta">' +
       '<span>' + fmtTime(d.timestamp) + '</span>' +
-      '<span>' + escapeHTML(d.span_name || '') + '</span>' +
-      '<span>' + escapeHTML(d.model || '') + '</span>' +
+      '<span class="badge ' + (p.role === 'assistant' ? 'badge-ok' : 'badge-info') + '">' + escapeHTML(p.role) + '</span>' +
       '<span>' + escapeHTML(d.trace_id) + '</span>' +
       '</div>' +
-      '<div class="search-result-content">' + escapeHTML(d.span_name || '') + ' &middot; ' + escapeHTML(d.model || 'unknown') + '</div>' +
+      '<div class="search-result-content">' + escapeHTML(preview) + '</div>' +
       '</div>';
     }).join('');
   } catch (err) {
-    el.innerHTML = '<div class="loading">' + t('error.search') + escapeHTML(err.message) + '</div>';
+    // Table may not exist or matches_term not supported
+    el.innerHTML = '<div class="loading">' + t('error.conv_search') + '</div>';
   }
 }
 
@@ -831,7 +969,7 @@ async function loadSecuritySummary() {
     document.getElementById('sec-fetch-count').textContent = fmtNum(rows(res2)?.[0]?.[0]);
   } catch { document.getElementById('sec-fetch-count').textContent = '\u2014'; }
 
-  document.getElementById('sec-injection-count').textContent = 'N/A';
+  // Injection count is set by loadInjectionAlerts()
 
   try {
     var res3 = await query(
@@ -874,9 +1012,107 @@ async function loadDangerousCommands() {
   }
 }
 
+// Prompt injection patterns — regex + label + severity
+var injectionPatterns = [
+  { re: /ignore\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules|context)/i, label: 'Instruction override', severity: 'high' },
+  { re: /disregard\s+(all\s+)?(previous|prior|above)/i, label: 'Instruction override', severity: 'high' },
+  { re: /forget\s+(your|all|previous)\s+(instructions|rules|guidelines)/i, label: 'Instruction override', severity: 'high' },
+  { re: /(reveal|show|output|print|display|repeat)\s+(your\s+)?(system\s+prompt|instructions|rules|initial\s+prompt)/i, label: 'Prompt extraction', severity: 'medium' },
+  { re: /what\s+(is|are)\s+your\s+(system\s+prompt|instructions|rules)/i, label: 'Prompt extraction', severity: 'medium' },
+  { re: /you\s+are\s+now\s+(a|an|the|in)\s/i, label: 'Role hijack', severity: 'medium' },
+  { re: /pretend\s+(you\s+are|to\s+be)\s/i, label: 'Role hijack', severity: 'low' },
+  { re: /act\s+as\s+(a|an|if\s+you\s+were)\s/i, label: 'Role hijack', severity: 'low' },
+  { re: /\bjailbreak/i, label: 'Jailbreak keyword', severity: 'high' },
+  { re: /\bDAN\b.*\bmode\b/i, label: 'DAN mode', severity: 'high' },
+  { re: /do\s+anything\s+now/i, label: 'DAN mode', severity: 'high' },
+  { re: /(ignore|bypass|disable)\s+(all\s+)?(safety|content)\s*(filter|policy|guard|check)/i, label: 'Safety bypass', severity: 'high' },
+  { re: /\[\s*system\s*\]/i, label: 'System tag injection', severity: 'medium' },
+  { re: /<\s*\|?\s*system\s*\|?\s*>/i, label: 'System tag injection', severity: 'medium' },
+];
+
 async function loadInjectionAlerts() {
   var el = document.getElementById('injection-alerts');
-  el.innerHTML = '<div class="loading">' + t('empty.injection_na') + '</div>';
+  var countEl = document.getElementById('sec-injection-count');
+  el.innerHTML = '<div class="loading">' + t('empty.loading') + '</div>';
+
+  try {
+    // Fetch recent log bodies that could contain user messages
+    var res = await query(
+      "SELECT timestamp, trace_id, body " +
+      "FROM opentelemetry_logs " +
+      "WHERE trace_id != '' AND body IS NOT NULL " +
+      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "' " +
+      "ORDER BY timestamp DESC LIMIT 500"
+    );
+    var data = rowsToObjects(res);
+    var alerts = [];
+
+    data.forEach(function(d) {
+      if (!d.body) return;
+      var parsed;
+      try { parsed = JSON.parse(d.body); } catch (e) { return; }
+
+      // Extract user message content only
+      var texts = [];
+      if (Array.isArray(parsed)) {
+        parsed.forEach(function(msg) {
+          if (msg && (msg.role === 'user' || !msg.role) && msg.content) texts.push(msg.content);
+        });
+      } else if (parsed && typeof parsed === 'object') {
+        // Prompt message: {"content":"..."} without "message" or "id" wrapper
+        if (!parsed.message && !parsed.id && parsed.content) {
+          texts.push(typeof parsed.content === 'string' ? parsed.content : '');
+        }
+      }
+
+      texts.forEach(function(text) {
+        if (!text) return;
+        injectionPatterns.forEach(function(p) {
+          if (p.re.test(text)) {
+            // Avoid duplicate alerts for same trace + pattern
+            var key = d.trace_id + '\0' + p.label;
+            if (!alerts.some(function(a) { return a.key === key; })) {
+              alerts.push({
+                key: key,
+                timestamp: d.timestamp,
+                trace_id: d.trace_id,
+                label: p.label,
+                severity: p.severity,
+                content: text,
+              });
+            }
+          }
+        });
+      });
+    });
+
+    // Sort: high → medium → low
+    var sev = { high: 0, medium: 1, low: 2 };
+    alerts.sort(function(a, b) { return (sev[a.severity] || 9) - (sev[b.severity] || 9); });
+
+    countEl.textContent = String(alerts.length);
+
+    if (!alerts.length) {
+      el.innerHTML = '<div class="loading">' + t('empty.no_injection') + '</div>';
+      return;
+    }
+
+    el.innerHTML = alerts.map(function(a) {
+      var severityClass = a.severity === 'high' ? 'badge-error' : a.severity === 'medium' ? 'badge-warn' : 'badge-info';
+      var preview = (a.content || '').substring(0, 150);
+      if ((a.content || '').length > 150) preview += '...';
+      return '<div class="anomaly-item' + (a.severity !== 'high' ? ' warn' : '') + '" onclick="switchToTrace(\'' + escapeHTML(a.trace_id) + '\')">' +
+        '<div class="anomaly-reason">' +
+        '<span class="badge ' + severityClass + '">' + escapeHTML(a.severity.toUpperCase()) + '</span> ' +
+        escapeHTML(a.label) + '</div>' +
+        '<div style="font-size:13px;margin-top:4px">' +
+        fmtTime(a.timestamp) + ' &middot; ' + escapeHTML(preview) +
+        '</div></div>';
+    }).join('');
+  } catch (err) {
+    countEl.textContent = '\u2014';
+    el.innerHTML = '<div class="loading">' + t('empty.injection_na') + '</div>';
+  }
 }
 
 async function loadToolTimeline() {
