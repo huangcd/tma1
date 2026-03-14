@@ -79,7 +79,7 @@ Log attributes are JSON. Use `json_get_string()`, `json_get_int()`, `json_get_fl
 | Table | Type | Content |
 |-------|------|---------|
 | `opentelemetry_logs` | Log events | Requests, tool results, decisions (scope_name LIKE 'codex_%') |
-| `codex_tokens_total` | Metric (counter) | Token counts by model + type |
+| `codex_turn_token_usage_sum` | Metric (histogram sum) | Token counts by model + type |
 | Other `codex_*` tables | Metrics | Various counters/histograms auto-created from OTel metrics |
 
 Codex logs use `scope_name` (not `body`) as the event discriminator. Extract fields via `json_get_string(log_attributes, 'model')`, `json_get_int(log_attributes, 'input_token_count')`, etc.

@@ -46,36 +46,40 @@ curl -s -X POST http://localhost:14318/api/query \
   -d '{"sql": "<SQL>"}'
 ```
 
-**Important**: The underlying database (GreptimeDB) uses `json_get_string()`, `json_get_int()`, `json_get_float()` for JSON column access. The `->` / `->>` operators are NOT supported. Keys containing dots (like `session.id`) are interpreted as nested paths and cannot be accessed via `json_get_*`.
+**Important**: The underlying database (GreptimeDB) uses `json_get_string()`, `json_get_int()`, `json_get_float()` for JSON column access. The `->` / `->>` operators are NOT supported. Keys containing dots (like `session.id`) are interpreted as nested paths and cannot be accessed via `json_get_*`. All timestamps are stored and returned in **UTC** by default. To use the user's local timezone, add `-H 'X-Greptime-Timezone: <tz>'` (e.g. `+8:00`, `-5:00`, `Asia/Shanghai`, `America/New_York`) — this affects both date parsing in WHERE clauses and timestamp rendering in results.
 
 ---
 
-## Claude Code Queries (metrics + logs)
+## Claude Code Queries (logs + metrics)
 
-### Cost summary (latest snapshot per model)
+**Note:** Claude Code resets OTel cumulative counters on each new session. Use **logs** (`opentelemetry_logs WHERE body = 'claude_code.api_request'`) for accurate cost/token totals. The `_total` metric tables only reflect the last session's counter value.
 
-The cost table contains cumulative counters reported every ~10s. To get the latest total cost per model, take the MAX value:
+### Cost summary (from logs — accurate across sessions)
 
 ```sql
-SELECT model,
-       ROUND(MAX(greptime_value), 4) AS cost_usd
-FROM "claude_code_cost_usage_USD_total"
-WHERE greptime_timestamp >= DATE_TRUNC('day', NOW())
+SELECT json_get_string(log_attributes, 'model') AS model,
+       ROUND(SUM(json_get_float(log_attributes, 'cost_usd')), 4) AS cost_usd,
+       COUNT(*) AS requests
+FROM opentelemetry_logs
+WHERE body = 'claude_code.api_request'
+  AND timestamp >= DATE_TRUNC('day', NOW())
 GROUP BY model
 ORDER BY cost_usd DESC
 ```
 
-### Token usage (latest snapshot per model per type)
-
-The token table has `type` = input/output/cacheRead/cacheCreation. Values are cumulative counters:
+### Token usage (from logs — accurate across sessions)
 
 ```sql
-SELECT model, type,
-       MAX(greptime_value) AS tokens
-FROM claude_code_token_usage_tokens_total
-WHERE greptime_timestamp >= DATE_TRUNC('day', NOW())
-GROUP BY model, type
-ORDER BY model, type
+SELECT json_get_string(log_attributes, 'model') AS model,
+       SUM(json_get_int(log_attributes, 'input_tokens')) AS input_tok,
+       SUM(json_get_int(log_attributes, 'output_tokens')) AS output_tok,
+       SUM(json_get_int(log_attributes, 'cache_read_input_tokens')) AS cache_read,
+       SUM(json_get_int(log_attributes, 'cache_creation_input_tokens')) AS cache_write
+FROM opentelemetry_logs
+WHERE body = 'claude_code.api_request'
+  AND timestamp >= DATE_TRUNC('day', NOW())
+GROUP BY model
+ORDER BY input_tok DESC
 ```
 
 ### Recent API requests (from logs)
@@ -132,7 +136,7 @@ ORDER BY timestamp DESC
 LIMIT 20
 ```
 
-### Active time
+### Active time (last session only — counter resets per session)
 
 ```sql
 SELECT type,
@@ -142,7 +146,7 @@ WHERE greptime_timestamp >= DATE_TRUNC('day', NOW())
 GROUP BY type
 ```
 
-### Lines of code
+### Lines of code (last session only — counter resets per session)
 
 ```sql
 SELECT type,
@@ -152,26 +156,16 @@ WHERE greptime_timestamp >= DATE_TRUNC('day', NOW())
 GROUP BY type
 ```
 
-### Model comparison
+### Model comparison (all time)
 
 ```sql
-SELECT model,
-       ROUND(MAX(greptime_value), 4) AS cost_usd
-FROM "claude_code_cost_usage_USD_total"
+SELECT json_get_string(log_attributes, 'model') AS model,
+       ROUND(SUM(json_get_float(log_attributes, 'cost_usd')), 4) AS cost_usd,
+       COUNT(*) AS requests
+FROM opentelemetry_logs
+WHERE body = 'claude_code.api_request'
 GROUP BY model
 ORDER BY cost_usd DESC
-```
-
-### Session-level cost over time
-
-```sql
-SELECT session_id, model,
-       ROUND(MAX(greptime_value), 4) AS cost_usd,
-       MIN(greptime_timestamp) AS started,
-       MAX(greptime_timestamp) AS last_seen
-FROM "claude_code_cost_usage_USD_total"
-GROUP BY session_id, model
-ORDER BY last_seen DESC
 ```
 
 ---
@@ -199,10 +193,10 @@ LIMIT 20
 ### Token usage by model (from metrics)
 
 ```sql
-SELECT model, token_type, SUM(greptime_value) AS tokens
+SELECT openclaw_model AS model, openclaw_token AS token_type, SUM(greptime_value) AS tokens
 FROM openclaw_tokens_total
-WHERE ts > NOW() - INTERVAL '1 day'
-GROUP BY model, token_type
+WHERE greptime_timestamp > NOW() - INTERVAL '1 day'
+GROUP BY openclaw_model, openclaw_token
 ORDER BY tokens DESC
 ```
 

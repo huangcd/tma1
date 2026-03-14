@@ -282,10 +282,11 @@ must be quoted with double quotes in SQL.
 
 🔍 QUICK QUERIES
 
--- Claude Code: today's cost by model
-SELECT model, ROUND(MAX(greptime_value), 4) AS cost_usd
-FROM "claude_code_cost_usage_USD_total"
-WHERE greptime_timestamp >= DATE_TRUNC('day', NOW())
+-- Claude Code: today's cost by model (from logs, not metrics — counters reset per session)
+SELECT json_get_string(log_attributes, 'model') AS model,
+  ROUND(SUM(json_get_float(log_attributes, 'cost_usd')), 4) AS cost_usd
+FROM opentelemetry_logs WHERE body = 'claude_code.api_request'
+  AND timestamp >= DATE_TRUNC('day', NOW())
 GROUP BY model ORDER BY cost_usd DESC;
 
 -- Codex: recent requests
@@ -297,9 +298,9 @@ FROM opentelemetry_logs WHERE scope_name LIKE 'codex_%'
 ORDER BY timestamp DESC LIMIT 10;
 
 -- OpenClaw: token usage by model
-SELECT model, token_type, SUM(greptime_value) AS tokens
-FROM openclaw_tokens_total WHERE ts > NOW() - INTERVAL '1 day'
-GROUP BY model, token_type ORDER BY tokens DESC;
+SELECT openclaw_model AS model, openclaw_token AS token_type, SUM(greptime_value) AS tokens
+FROM openclaw_tokens_total WHERE greptime_timestamp > NOW() - INTERVAL '1 day'
+GROUP BY openclaw_model, openclaw_token ORDER BY tokens DESC;
 
 -- Any agent: list all tables
 SHOW TABLES;
@@ -331,7 +332,7 @@ curl -s -X POST http://localhost:14318/api/query \
   -d '{"sql": "<SQL>"}'
 ```
 
-**Important**: The underlying database (GreptimeDB) uses `json_get_string()`, `json_get_int()`, `json_get_float()` for JSON column access. The `->` / `->>` operators are NOT supported.
+**Important**: The underlying database (GreptimeDB) uses `json_get_string()`, `json_get_int()`, `json_get_float()` for JSON column access. The `->` / `->>` operators are NOT supported. All timestamps are stored and returned in **UTC** by default. To use the user's local timezone, add `-H 'X-Greptime-Timezone: <tz>'` (e.g. `+8:00`, `-5:00`, `Asia/Shanghai`, `America/New_York`) — this affects both date parsing in WHERE clauses and timestamp rendering in results.
 
 ### Detect available data
 
@@ -342,7 +343,7 @@ SHOW TABLES
 Check which tables exist:
 - `opentelemetry_logs` → logs from Claude Code (`body = 'claude_code.*'`) or Codex (`scope_name LIKE 'codex_%'`)
 - `claude_code_cost_usage_USD_total` → Claude Code metrics
-- `codex_tokens_total` → Codex metrics
+- `codex_turn_token_usage_sum` → Codex metrics
 - `opentelemetry_traces` → traces from Codex, OpenClaw, or GenAI SDK
 - `openclaw_tokens_total` → OpenClaw metrics
 
@@ -367,10 +368,10 @@ LIMIT 20
 
 **Token usage by model (from metrics):**
 ```sql
-SELECT model, token_type, SUM(greptime_value) AS tokens
+SELECT openclaw_model AS model, openclaw_token AS token_type, SUM(greptime_value) AS tokens
 FROM openclaw_tokens_total
-WHERE ts > NOW() - INTERVAL '1 day'
-GROUP BY model, token_type
+WHERE greptime_timestamp > NOW() - INTERVAL '1 day'
+GROUP BY openclaw_model, openclaw_token
 ORDER BY tokens DESC
 ```
 
@@ -399,26 +400,34 @@ LIMIT 20
 
 ---
 
-### Claude Code Queries (metrics + logs)
+### Claude Code Queries (logs + metrics)
 
-**Cost summary (latest snapshot per model):**
+**Note:** Claude Code resets OTel cumulative counters on each new session. Use **logs** (`opentelemetry_logs WHERE body = 'claude_code.api_request'`) for accurate cost/token totals. The `_total` metric tables only reflect the last session's counter value.
+
+**Cost summary (from logs — accurate across sessions):**
 ```sql
-SELECT model,
-       ROUND(MAX(greptime_value), 4) AS cost_usd
-FROM "claude_code_cost_usage_USD_total"
-WHERE greptime_timestamp >= DATE_TRUNC('day', NOW())
+SELECT json_get_string(log_attributes, 'model') AS model,
+       ROUND(SUM(json_get_float(log_attributes, 'cost_usd')), 4) AS cost_usd,
+       COUNT(*) AS requests
+FROM opentelemetry_logs
+WHERE body = 'claude_code.api_request'
+  AND timestamp >= DATE_TRUNC('day', NOW())
 GROUP BY model
 ORDER BY cost_usd DESC
 ```
 
-**Token usage (latest snapshot per model per type):**
+**Token usage (from logs — accurate across sessions):**
 ```sql
-SELECT model, type,
-       MAX(greptime_value) AS tokens
-FROM claude_code_token_usage_tokens_total
-WHERE greptime_timestamp >= DATE_TRUNC('day', NOW())
-GROUP BY model, type
-ORDER BY model, type
+SELECT json_get_string(log_attributes, 'model') AS model,
+       SUM(json_get_int(log_attributes, 'input_tokens')) AS input_tok,
+       SUM(json_get_int(log_attributes, 'output_tokens')) AS output_tok,
+       SUM(json_get_int(log_attributes, 'cache_read_input_tokens')) AS cache_read,
+       SUM(json_get_int(log_attributes, 'cache_creation_input_tokens')) AS cache_write
+FROM opentelemetry_logs
+WHERE body = 'claude_code.api_request'
+  AND timestamp >= DATE_TRUNC('day', NOW())
+GROUP BY model
+ORDER BY input_tok DESC
 ```
 
 **Recent API requests (from logs):**
@@ -481,7 +490,7 @@ ORDER BY uses DESC
 **Token usage (from metrics, if available):**
 ```sql
 SELECT model, token_type, SUM(greptime_value) AS tokens
-FROM codex_tokens_total
+FROM codex_turn_token_usage_sum
 WHERE greptime_timestamp > NOW() - INTERVAL '1 day'
 GROUP BY model, token_type
 ORDER BY tokens DESC
