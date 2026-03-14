@@ -31,8 +31,10 @@ async function detectDataSources() {
       hasCodex: false,
       ccMetrics: tables.filter(function(t) { return t.startsWith('claude_code_'); }),
       codexMetrics: tables.filter(function(t) { return t.startsWith('codex_'); }),
+      ocMetrics: tables.filter(function(t) { return t.startsWith('openclaw_'); }),
     };
     result.hasCodex = result.codexMetrics.length > 0;
+    result.hasOpenClaw = result.ocMetrics.length > 0;
     if (result.hasLogs) {
       try {
         var logKindRes = await query(
@@ -64,7 +66,16 @@ async function detectDataSources() {
           result.hasCodex = (Number(rows(codexTraceRes)?.[0]?.[0]) || 0) > 0;
         } catch { /* ignore */ }
       }
-      // If column detection failed or neither schema found, default to GenAI
+      // Detect OpenClaw via span_name when columns are not yet registered.
+      if (!result.hasOpenClaw) {
+        try {
+          var ocSpanRes = await query(
+            "SELECT 1 FROM opentelemetry_traces WHERE span_name LIKE 'openclaw.%' LIMIT 1"
+          );
+          result.hasOpenClaw = (rows(ocSpanRes) || []).length > 0;
+        } catch { /* ignore */ }
+      }
+      // Fallback: if no recognized schema found, default to GenAI.
       if (!result.hasOpenClaw && !result.hasGenAITraces) {
         result.hasGenAITraces = true;
       }
