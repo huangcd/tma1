@@ -46,7 +46,7 @@ curl -s -X POST http://localhost:14318/api/query \
   -d '{"sql": "<SQL>"}'
 ```
 
-**Important**: GreptimeDB uses `json_get_string()`, `json_get_int()`, `json_get_float()` for JSON column access. The `->` / `->>` operators are NOT supported. Keys containing dots (like `session.id`) are interpreted as nested paths and cannot be accessed via `json_get_*`.
+**Important**: The underlying database (GreptimeDB) uses `json_get_string()`, `json_get_int()`, `json_get_float()` for JSON column access. The `->` / `->>` operators are NOT supported. Keys containing dots (like `session.id`) are interpreted as nested paths and cannot be accessed via `json_get_*`.
 
 ---
 

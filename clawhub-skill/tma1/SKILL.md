@@ -2,7 +2,7 @@
 name: tma1
 version: 0.2.0
 description: |
-  Local-first LLM agent observability powered by GreptimeDB.
+  Local-first LLM agent observability.
 
   Use when users say:
   - "install tma1"
@@ -27,7 +27,6 @@ keywords:
   - agent monitoring
   - local telemetry
   - otel
-  - greptimedb
 metadata:
   openclaw:
     emoji: "🪨"
@@ -51,8 +50,8 @@ metadata:
 # TMA1
 
 TMA1 gives you local-first observability for your AI agent.
-Token usage, cost, latency — stored in a local GreptimeDB instance,
-queryable with plain SQL. No cloud account. No Docker. No Grafana setup.
+Token usage, cost, latency — stored locally, queryable with plain SQL.
+No cloud account. No Docker. No Grafana setup.
 Works with Claude Code, Codex, OpenClaw, or any OTel-enabled agent.
 
 The name comes from TMA-1 (Tycho Magnetic Anomaly-1) in *2001: A Space Odyssey*:
@@ -103,7 +102,7 @@ Dashboard: **http://localhost:14318**
 This task is NOT complete until all of the following are true:
 
 1. TMA1 binary is installed and running (`tma1-server` process)
-2. GreptimeDB is healthy at `http://localhost:14000/health`
+2. Database engine is healthy at `http://localhost:14000/health`
 3. The user's agent is configured to send OTel data to TMA1 (endpoint depends on agent — see Step 3)
 4. Agent has been restarted (if applicable)
 5. Setup is verified (either `/status` returns ok, or the user confirms data is flowing)
@@ -135,14 +134,12 @@ curl -fsSL https://tma1.ai/install.sh | bash
 ```
 
 This will:
-1. Download the `tma1-server` binary into `~/.tma1/bin/` (GreptimeDB is auto-downloaded on first start)
-2. Start `tma1-server` (which manages GreptimeDB and serves the dashboard)
+1. Download the `tma1-server` binary into `~/.tma1/bin/` (the embedded database is auto-downloaded on first start)
+2. Start `tma1-server` (which manages the database engine and serves the dashboard)
 3. Print the dashboard URL: `http://localhost:14318`
-4. Generate GreptimeDB's default config at `~/.tma1/config/standalone.toml` on first start
+4. Generate the default database config at `~/.tma1/config/standalone.toml` on first start
 
-The generated config keeps HTTP, MySQL, Postgres, and Prometheus Remote Storage enabled. It disables unused protocol services such as InfluxDB, OpenTSDB, and Jaeger, and applies conservative local CPU and memory limits.
-
-Wait ~15 seconds for GreptimeDB to start, then verify:
+Wait ~15 seconds for the database to start, then verify:
 
 ```bash
 curl -sf http://localhost:14318/health && echo "OK" || echo "FAILED"
@@ -153,10 +150,10 @@ If it fails, tell the user:
 
 ---
 
-### Step 2 — Verify GreptimeDB is healthy
+### Step 2 — Verify database is healthy
 
 ```bash
-curl -sf http://localhost:14000/health && echo "GREPTIMEDB OK" || echo "GREPTIMEDB NOT READY"
+curl -sf http://localhost:14000/health && echo "DB OK" || echo "DB NOT READY"
 ```
 
 If not healthy after 30 seconds, something is wrong with the install. Ask the user to check logs.
@@ -316,8 +313,8 @@ SHOW TABLES;
 💾 YOUR DATA
 Stored locally in: ~/.tma1/data/
 
-GreptimeDB config: ~/.tma1/config/standalone.toml
-Edit this file if you want to tune GreptimeDB resource usage, then restart `tma1-server`.
+Database config: ~/.tma1/config/standalone.toml
+Edit this file if you want to tune database resource usage, then restart `tma1-server`.
 Never sent to any cloud service.
 
 ♻️ RESTART
@@ -340,7 +337,7 @@ curl -s -X POST http://localhost:14318/api/query \
   -d '{"sql": "<SQL>"}'
 ```
 
-**Important**: GreptimeDB uses `json_get_string()`, `json_get_int()`, `json_get_float()` for JSON column access. The `->` / `->>` operators are NOT supported.
+**Important**: The underlying database (GreptimeDB) uses `json_get_string()`, `json_get_int()`, `json_get_float()` for JSON column access. The `->` / `->>` operators are NOT supported.
 
 ### Detect available data
 
@@ -553,10 +550,10 @@ ORDER BY input_tok DESC
 | Symptom | Fix |
 | --- | --- |
 | `tma1-server` not starting | macOS: check `~/Library/Logs/tma1-server.log`; Linux: `journalctl --user -u tma1-server`; verify port 14318 is free |
-| GreptimeDB not healthy | Wait longer; check port 14000 is free; inspect `~/.tma1/config/standalone.toml` if GreptimeDB was manually reconfigured |
+| Database not healthy | Wait longer; check port 14000 is free; inspect `~/.tma1/config/standalone.toml` if it was manually reconfigured |
 | No data in dashboard | Verify agent OTel config points to TMA1 (Claude Code/OpenClaw: `/v1/otlp`; Codex: separate `/v1/logs`, `/v1/traces`, `/v1/metrics`) and restart the agent |
 | Port conflict on 14000 | Set `TMA1_GREPTIMEDB_HTTP_PORT=14001` and update agent endpoint config |
-| Dashboard shows "GREPTIMEDB: unreachable" | GreptimeDB crashed; restart with `tma1-server` |
+| Dashboard shows "GREPTIMEDB: unreachable" | Database crashed; restart with `tma1-server` |
 
 ---
 
