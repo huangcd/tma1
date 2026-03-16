@@ -147,7 +147,7 @@ function Register-TMA1Task {
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
         -RestartCount 3 `
-        -RestartInterval (New-TimeSpan -Seconds 10) `
+        -RestartInterval (New-TimeSpan -Minutes 1) `
         -ExecutionTimeLimit (New-TimeSpan -Days 9999)
 
     Register-ScheduledTask -TaskName 'TMA1 Server' `
