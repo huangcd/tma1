@@ -191,16 +191,35 @@ function Show-PostInstall {
         Write-Host ''
     }
 
-    Write-Host "Configure your agent (e.g. Claude Code %USERPROFILE%\.claude\settings.json):"
+    Write-Host "Configure your agent:"
     Write-Host ''
-    Write-Host '  "env": {'
-    Write-Host "    `"OTEL_EXPORTER_OTLP_ENDPOINT`": `"http://localhost:${TMA1Port}/v1/otlp`","
-    Write-Host '    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",'
-    Write-Host '    "OTEL_METRICS_EXPORTER": "otlp",'
-    Write-Host '    "OTEL_LOGS_EXPORTER": "otlp"'
-    Write-Host '  }'
+    Write-Host "  Claude Code (%USERPROFILE%\.claude\settings.json):"
+    Write-Host ''
+    Write-Host '    "env": {'
+    Write-Host "      `"OTEL_EXPORTER_OTLP_ENDPOINT`": `"http://localhost:${TMA1Port}/v1/otlp`","
+    Write-Host '      "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",'
+    Write-Host '      "OTEL_METRICS_EXPORTER": "otlp",'
+    Write-Host '      "OTEL_LOGS_EXPORTER": "otlp"'
+    Write-Host '    }'
+    Write-Host ''
+    Write-Host "  Codex (%USERPROFILE%\.codex\config.toml):"
+    Write-Host ''
+    Write-Host '    [otel]'
+    Write-Host '    log_user_prompt = true'
+    Write-Host '    [otel.exporter.otlp-http]'
+    Write-Host "    endpoint = `"http://localhost:${TMA1Port}/v1/logs`""
+    Write-Host '    protocol = "binary"'
+    Write-Host '    [otel.trace_exporter.otlp-http]'
+    Write-Host "    endpoint = `"http://localhost:${TMA1Port}/v1/traces`""
+    Write-Host '    protocol = "binary"'
+    Write-Host '    [otel.metrics_exporter.otlp-http]'
+    Write-Host "    endpoint = `"http://localhost:${TMA1Port}/v1/metrics`""
+    Write-Host '    protocol = "binary"'
     Write-Host ''
     Write-Host "Dashboard: http://localhost:${TMA1Port}"
+    Write-Host "GreptimeDB config: $TMA1DataDir\config\standalone.toml"
+    Write-Host '  Generated automatically on first start and reused on later restarts.'
+    Write-Host '  Edit it if you want to tune GreptimeDB CPU or memory limits.'
     Write-Host ''
 }
 
