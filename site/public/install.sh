@@ -53,12 +53,15 @@ resolve_version() {
   fi
 
   info "Resolving latest version..."
-  # Try stable release first, fall back to latest prerelease
+  # Try stable release first (GitHub /releases/latest only returns non-prerelease).
   VERSION="$(curl -fsSL -o /dev/null -w '%{redirect_url}' \
     "https://github.com/${REPO}/releases/latest" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^/]*')" || true
   if [ -z "$VERSION" ]; then
-    VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=1" \
-      | grep -oE '"tag_name"\s*:\s*"v[^"]+' | head -1 | grep -oE 'v[0-9]+.*')" \
+    # Fall back to most recent tag. The tags API returns results in reverse
+    # chronological order, unlike the releases API which uses an unstable
+    # sort that breaks with prerelease suffixes (e.g. alpha9 > alpha10).
+    VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/tags?per_page=1" \
+      | grep -oE '"name"\s*:\s*"v[^"]+' | head -1 | grep -oE 'v[0-9]+.*')" \
       || error "Failed to resolve latest version. Set TMA1_VERSION to install a specific version."
   fi
 }

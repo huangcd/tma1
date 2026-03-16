@@ -38,9 +38,11 @@ function Resolve-Version {
         if ($loc -match '(v\d+\.\d+\.\d+.*)$') { return $Matches[1] }
     }
 
-    # Fallback: GitHub API
-    $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=1"
-    if ($releases -and $releases[0].tag_name) { return $releases[0].tag_name }
+    # Fallback: most recent tag. The tags API returns results in reverse chronological
+    # order, unlike the releases API which uses an unstable sort that breaks with
+    # prerelease suffixes (e.g. alpha9 sorts above alpha10).
+    $tags = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/tags?per_page=1"
+    if ($tags -and $tags[0].name) { return $tags[0].name }
 
     throw 'Failed to resolve latest version. Set $env:TMA1_VERSION to install a specific version.'
 }
