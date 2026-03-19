@@ -82,37 +82,51 @@ async function oc_loadCards() {
   var iv = intervalSQL();
   try {
     await loadPricing();
-    var costExpr = costCaseSQL(
-      '"span_attributes.openclaw.model"',
-      '"span_attributes.openclaw.tokens.input"',
-      '"span_attributes.openclaw.tokens.output"'
-    );
-    var results = await Promise.all([
-      query(
+    var cols = await oc_getTraceColumns();
+    var hasTokenCols = !!cols['span_attributes.openclaw.tokens.input']
+      && !!cols['span_attributes.openclaw.tokens.output'];
+    var hasModelCol = !!cols['span_attributes.openclaw.model'];
+
+    var queries = [];
+    // [0] Cost — needs model + token columns
+    if (hasModelCol && hasTokenCols) {
+      var costExpr = costCaseSQL(
+        '"span_attributes.openclaw.model"',
+        '"span_attributes.openclaw.tokens.input"',
+        '"span_attributes.openclaw.tokens.output"'
+      );
+      queries.push(query(
         "SELECT ROUND(SUM(" + costExpr + "), 4) AS v " +
         "FROM opentelemetry_traces " +
         "WHERE " + OC_MODEL_SPAN + " AND timestamp > NOW() - INTERVAL '" + iv + "'"
-      ),
-      query(
+      ));
+    } else { queries.push(Promise.resolve(null)); }
+    // [1] Tokens — needs token columns
+    if (hasTokenCols) {
+      queries.push(query(
         "SELECT SUM(CAST(\"span_attributes.openclaw.tokens.input\" AS DOUBLE) + " +
         "CAST(\"span_attributes.openclaw.tokens.output\" AS DOUBLE)) AS v " +
         "FROM opentelemetry_traces " +
         "WHERE " + OC_MODEL_SPAN + " AND timestamp > NOW() - INTERVAL '" + iv + "'"
-      ),
-      query(
-        "SELECT COUNT(*) AS v FROM opentelemetry_traces " +
-        "WHERE " + OC_MODEL_SPAN + " AND timestamp > NOW() - INTERVAL '" + iv + "'"
-      ),
-      query(
-        "SELECT ROUND(AVG(duration_nano) / 1000000.0, 0) AS v FROM opentelemetry_traces " +
-        "WHERE " + OC_MODEL_SPAN + " AND timestamp > NOW() - INTERVAL '" + iv + "'"
-      ),
-    ]);
+      ));
+    } else { queries.push(Promise.resolve(null)); }
+    // [2] Request count — only span_name filter, always safe
+    queries.push(query(
+      "SELECT COUNT(*) AS v FROM opentelemetry_traces " +
+      "WHERE " + OC_MODEL_SPAN + " AND timestamp > NOW() - INTERVAL '" + iv + "'"
+    ));
+    // [3] Latency — only duration_nano, always safe
+    queries.push(query(
+      "SELECT ROUND(AVG(duration_nano) / 1000000.0, 0) AS v FROM opentelemetry_traces " +
+      "WHERE " + OC_MODEL_SPAN + " AND timestamp > NOW() - INTERVAL '" + iv + "'"
+    ));
+
+    var results = await Promise.all(queries);
     var reqCount = Number(rows(results[2])?.[0]?.[0]) || 0;
-    document.getElementById('oc-val-cost').textContent = fmtCost(rows(results[0])?.[0]?.[0]);
-    document.getElementById('oc-val-tokens').textContent = fmtNum(rows(results[1])?.[0]?.[0]);
+    document.getElementById('oc-val-cost').textContent = results[0] ? fmtCost(rows(results[0])?.[0]?.[0]) : '\u2014';
+    document.getElementById('oc-val-tokens').textContent = results[1] ? fmtNum(rows(results[1])?.[0]?.[0]) : '\u2014';
     document.getElementById('oc-val-requests').textContent = fmtNum(reqCount);
-    var latVal = rows(results[3])?.[0]?.[0];
+    var latVal = results[3] ? rows(results[3])?.[0]?.[0] : null;
     document.getElementById('oc-val-latency').textContent = fmtDurMs(latVal);
 
     // Health indicator (5-minute window)
@@ -120,6 +134,11 @@ async function oc_loadCards() {
 
     return reqCount > 0;
   } catch (err) {
+    // Fallback: check if metric tables have data even when trace queries fail
+    try {
+      var mr = await query("SELECT 1 FROM openclaw_tokens_total LIMIT 1");
+      if ((rows(mr) || []).length > 0) return true;
+    } catch (_) { /* metric table does not exist either */ }
     var banner = document.getElementById('error-banner');
     banner.style.display = 'block';
     banner.textContent = 'OpenClaw metrics error: ' + err.message;

@@ -26,49 +26,72 @@ function updateTracePager(resultCount) {
 // ===================================================================
 async function loadMetrics() {
   try {
-    // Today's cost (dynamic pricing from tma1_model_pricing)
-    var costRes = await query(
-      "SELECT ROUND(SUM(" + costCaseSQL(
-        '"span_attributes.gen_ai.request.model"',
-        '"span_attributes.gen_ai.usage.input_tokens"',
-        '"span_attributes.gen_ai.usage.output_tokens"'
-      ) + "), 4) AS total " +
-      "FROM opentelemetry_traces " +
-      "WHERE \"span_attributes.gen_ai.system\" IS NOT NULL " +
-      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "'"
+    // Check which gen_ai columns exist (schema-on-write: columns only appear after first matching span)
+    var colRes = await query(
+      "SELECT column_name FROM information_schema.columns " +
+      "WHERE table_schema = 'public' AND table_name = 'opentelemetry_traces' " +
+      "AND column_name LIKE 'span_attributes.gen_ai.%'"
     );
-    var costVal = rows(costRes)?.[0]?.[0];
-    document.getElementById('val-cost').textContent = fmtCost(costVal);
+    var colSet = {};
+    rowsToObjects(colRes).forEach(function(r) { colSet[r.column_name] = true; });
+    var hasSystem = !!colSet['span_attributes.gen_ai.system'];
+    var hasModel = !!colSet['span_attributes.gen_ai.request.model'];
+    var hasInputTok = !!colSet['span_attributes.gen_ai.usage.input_tokens'];
+    var hasOutputTok = !!colSet['span_attributes.gen_ai.usage.output_tokens'];
 
-    // Today's tokens
-    var tokenRes = await query(
-      "SELECT SUM(CAST(\"span_attributes.gen_ai.usage.input_tokens\" AS DOUBLE) + " +
-      "CAST(\"span_attributes.gen_ai.usage.output_tokens\" AS DOUBLE)) AS total " +
-      "FROM opentelemetry_traces " +
-      "WHERE \"span_attributes.gen_ai.system\" IS NOT NULL " +
-      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "'"
-    );
-    var tokenVal = rows(tokenRes)?.[0]?.[0];
-    document.getElementById('val-tokens').textContent = fmtNum(tokenVal);
+    // No gen_ai columns at all — no data yet, clean exit
+    if (!hasSystem) return false;
 
-    // Request count
-    var reqRes = await query(
+    var iv = intervalSQL();
+    var queries = [];
+
+    // [0] Cost — needs model + token columns
+    if (hasModel && hasInputTok && hasOutputTok) {
+      queries.push(query(
+        "SELECT ROUND(SUM(" + costCaseSQL(
+          '"span_attributes.gen_ai.request.model"',
+          '"span_attributes.gen_ai.usage.input_tokens"',
+          '"span_attributes.gen_ai.usage.output_tokens"'
+        ) + "), 4) AS total " +
+        "FROM opentelemetry_traces " +
+        "WHERE \"span_attributes.gen_ai.system\" IS NOT NULL " +
+        "AND timestamp > NOW() - INTERVAL '" + iv + "'"
+      ));
+    } else { queries.push(Promise.resolve(null)); }
+
+    // [1] Tokens — needs token columns
+    if (hasInputTok && hasOutputTok) {
+      queries.push(query(
+        "SELECT SUM(CAST(\"span_attributes.gen_ai.usage.input_tokens\" AS DOUBLE) + " +
+        "CAST(\"span_attributes.gen_ai.usage.output_tokens\" AS DOUBLE)) AS total " +
+        "FROM opentelemetry_traces " +
+        "WHERE \"span_attributes.gen_ai.system\" IS NOT NULL " +
+        "AND timestamp > NOW() - INTERVAL '" + iv + "'"
+      ));
+    } else { queries.push(Promise.resolve(null)); }
+
+    // [2] Request count — only needs system column (always true here)
+    queries.push(query(
       "SELECT COUNT(1) AS total " +
       "FROM opentelemetry_traces " +
       "WHERE \"span_attributes.gen_ai.system\" IS NOT NULL " +
-      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "'"
-    );
-    var reqCount = Number(rows(reqRes)?.[0]?.[0]) || 0;
-    document.getElementById('val-requests').textContent = fmtNum(reqCount);
+      "AND timestamp > NOW() - INTERVAL '" + iv + "'"
+    ));
 
-    // avg latency (raw trace range query)
-    var latRes = await query(
+    // [3] Avg latency — only needs system column + duration_nano
+    queries.push(query(
       "SELECT AVG(duration_nano) AS avg_lat " +
       "FROM opentelemetry_traces " +
       "WHERE \"span_attributes.gen_ai.system\" IS NOT NULL " +
-      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "'"
-    );
-    var latVal = rows(latRes)?.[0]?.[0];
+      "AND timestamp > NOW() - INTERVAL '" + iv + "'"
+    ));
+
+    var results = await Promise.all(queries);
+    document.getElementById('val-cost').textContent = results[0] ? fmtCost(rows(results[0])?.[0]?.[0]) : '\u2014';
+    document.getElementById('val-tokens').textContent = results[1] ? fmtNum(rows(results[1])?.[0]?.[0]) : '\u2014';
+    var reqCount = Number(rows(results[2])?.[0]?.[0]) || 0;
+    document.getElementById('val-requests').textContent = fmtNum(reqCount);
+    var latVal = results[3] ? rows(results[3])?.[0]?.[0] : null;
     document.getElementById('val-latency').textContent = latVal != null ? fmtMs(latVal) : '\u2014';
 
     // Health indicator (5-minute window)
