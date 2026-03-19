@@ -142,6 +142,12 @@ This will:
 3. Print the dashboard URL: `http://localhost:14318`
 4. Generate the default database config at `~/.tma1/config/standalone.toml` on first start
 
+If a clean reinstall is needed (wipes all data, config, and logs):
+
+```bash
+curl -fsSL https://tma1.ai/install.sh | TMA1_FORCE=1 bash
+```
+
 Wait ~15 seconds for the database to start, then verify:
 
 ```bash
@@ -338,6 +344,7 @@ Restart: tma1-server
 Upgrade (macOS/Linux): curl -fsSL https://tma1.ai/install.sh | bash
 Upgrade (Windows PS):  irm https://tma1.ai/install.ps1 | iex
   (stops the running service, downloads the new binary, restarts — data is preserved)
+Force reinstall (wipes all data): curl -fsSL https://tma1.ai/install.sh | TMA1_FORCE=1 bash
 
 💡 For more queries, read: https://tma1.ai/REFERENCE.md
 ```
