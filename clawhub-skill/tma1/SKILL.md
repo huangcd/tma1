@@ -116,7 +116,8 @@ This task is NOT complete until all of the following are true:
 curl -sf http://localhost:14318/health && echo "RUNNING" || echo "NOT_RUNNING"
 ```
 
-- If `RUNNING`: skip to Step 3 (configure agent).
+- If `RUNNING` **and** the user asked to **upgrade/update**: continue to Step 1 (the install script handles in-place upgrades — it stops the running server, replaces the binary, and restarts). Then proceed to Step 3 to ensure agent config is up to date.
+- If `RUNNING` **and** this is a fresh setup request: skip to Step 3 (configure agent).
 - If `NOT_RUNNING`: continue to Step 1.
 
 ---

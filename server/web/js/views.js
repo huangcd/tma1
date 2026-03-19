@@ -44,8 +44,8 @@ async function detectDataSources() {
           "FROM opentelemetry_logs"
         );
         var logKindRow = rows(logKindRes)?.[0] || [];
-        result.hasClaudeLogs = (Number(logKindRow[0]) || 0) > 0;
-        result.hasCodex = (Number(logKindRow[1]) || 0) > 0;
+        result.hasClaudeLogs = result.hasClaudeLogs || (Number(logKindRow[0]) || 0) > 0;
+        result.hasCodex = result.hasCodex || (Number(logKindRow[1]) || 0) > 0;
       } catch { /* ignore */ }
     }
     if (result.hasTraces) {
@@ -55,8 +55,8 @@ async function detectDataSources() {
           "WHERE table_name = 'opentelemetry_traces' AND table_schema = 'public'"
         );
         var columns = rowsToObjects(colRes).map(function(r) { return r.column_name; });
-        result.hasOpenClaw = columns.some(function(c) { return c.indexOf('span_attributes.openclaw.') === 0; });
-        result.hasGenAITraces = columns.some(function(c) { return c.indexOf('span_attributes.gen_ai.') === 0; });
+        result.hasOpenClaw = result.hasOpenClaw || columns.some(function(c) { return c.indexOf('span_attributes.openclaw.') === 0; });
+        result.hasGenAITraces = result.hasGenAITraces || columns.some(function(c) { return c.indexOf('span_attributes.gen_ai.') === 0; });
       } catch { /* column detection failed, fall back to showing traces view */ }
       if (!result.hasCodex) {
         try {

@@ -88,10 +88,14 @@
       <code># OpenClaw</code><br/>
       <code>openclaw plugins install @openclaw/diagnostics-otel</code><br/>
       <code>openclaw plugins enable diagnostics-otel</code><br/>
+      <code>openclaw config set diagnostics.enabled true</code><br/>
+      <code>openclaw config set diagnostics.otel.enabled true</code><br/>
       <code>openclaw config set diagnostics.otel.endpoint http://localhost:14318/v1/otlp</code><br/>
+      <code>openclaw config set diagnostics.otel.serviceName openclaw-gateway</code><br/>
       <code>openclaw config set diagnostics.otel.traces true</code><br/>
       <code>openclaw config set diagnostics.otel.metrics true</code><br/>
-      <code>openclaw config set diagnostics.otel.logs true</code> <span style="color:var(--text-muted);font-size:12px"># optional: gateway internal logs</span>
+      <code>openclaw config set diagnostics.otel.logs true</code> <span style="color:var(--text-muted);font-size:12px"># optional: gateway internal logs</span><br/>
+      <code>openclaw gateway restart</code>
       <br/><br/>
       <code># Any OTel SDK</code><br/>
       <code>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:14318/v1/otlp your-agent</code>
