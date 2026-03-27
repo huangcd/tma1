@@ -1,5 +1,5 @@
 // views.js — view management, theme, tab navigation, init
-// Depends on: core.js, chart.js, i18n.js, traces.js, claude-code.js, codex.js
+// Depends on: core.js, chart.js, i18n.js, traces.js, claude-code.js, codex.js, openclaw.js, sessions.js, agent-canvas.js
 // Must be loaded LAST. Calls initViews() at the bottom.
 
 var currentView = null; // 'claude-code', 'codex', 'openclaw', 'traces', or 'sessions'

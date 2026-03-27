@@ -47,6 +47,26 @@ func (w *Watcher) StartCodexScanner(ctx context.Context) {
 
 func (w *Watcher) scanCodexSessions(baseDir string) {
 	now := time.Now()
+
+	// Prune stopped codex watcher entries to prevent unbounded memory growth.
+	// Keep recent stopped entries (their seen maps prevent re-insertion on restart).
+	// Only prune when count exceeds threshold — old sessions from prior days.
+	w.mu.Lock()
+	var stoppedCount int
+	for key, sw := range w.sessions {
+		if sw.stopped && strings.HasPrefix(key, "codex:") {
+			stoppedCount++
+		}
+	}
+	if stoppedCount > 50 {
+		for key, sw := range w.sessions {
+			if sw.stopped && strings.HasPrefix(key, "codex:") {
+				delete(w.sessions, key)
+			}
+		}
+	}
+	w.mu.Unlock()
+
 	// Walk today's and yesterday's date dirs to find active JSONL files.
 	for _, offset := range []int{0, -1} {
 		d := now.AddDate(0, 0, offset)
@@ -336,7 +356,11 @@ func (w *Watcher) insertCodexModelMessage(sessionID string, ts time.Time, model 
 		escapeSQLString(sessionID),
 		escapeSQLString(model),
 	)
-	go w.execSQL(sql)
+	go func() {
+		insertSem <- struct{}{}
+		defer func() { <-insertSem }()
+		w.execSQL(sql)
+	}()
 }
 
 func (w *Watcher) insertCodexMessage(sessionID string, ts time.Time, role, content string, seen map[string]struct{}) {
@@ -378,7 +402,11 @@ func (w *Watcher) insertCodexMessage(sessionID string, ts time.Time, role, conte
 		escapeSQLString(role),
 		escapeSQLString(truncate(content, maxContentLen)),
 	)
-	go w.execSQL(sql)
+	go func() {
+		insertSem <- struct{}{}
+		defer func() { <-insertSem }()
+		w.execSQL(sql)
+	}()
 }
 
 func (w *Watcher) insertCodexSessionStart(sessionID string, ts time.Time, cwd string) {
@@ -404,7 +432,11 @@ func (w *Watcher) insertCodexSessionStart(sessionID string, ts time.Time, cwd st
 		escapeSQLString(sessionID),
 		escapeSQLString(truncate(cwd, 512)),
 	)
-	go w.execSQL(sql)
+	go func() {
+		insertSem <- struct{}{}
+		defer func() { <-insertSem }()
+		w.execSQL(sql)
+	}()
 }
 
 func codexSubagentID(fileID, agentType string) string {
@@ -438,7 +470,11 @@ func (w *Watcher) insertCodexSubagentEvent(sessionID string, ts time.Time, agent
 		escapeSQLString(agentID),
 		escapeSQLString(agentType),
 	)
-	go w.execSQL(sql)
+	go func() {
+		insertSem <- struct{}{}
+		defer func() { <-insertSem }()
+		w.execSQL(sql)
+	}()
 }
 
 func (w *Watcher) insertCodexHookEvent(sessionID string, ts time.Time, eventType, toolName, toolInput, toolUseID, toolResult string, fctx *codexFileContext) {
@@ -477,5 +513,9 @@ func (w *Watcher) insertCodexHookEvent(sessionID string, ts time.Time, eventType
 		escapeSQLString(agentID),
 		escapeSQLString(agentType),
 	)
-	go w.execSQL(sql)
+	go func() {
+		insertSem <- struct{}{}
+		defer func() { <-insertSem }()
+		w.execSQL(sql)
+	}()
 }

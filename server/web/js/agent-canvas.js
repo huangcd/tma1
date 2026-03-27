@@ -1,5 +1,5 @@
 /* Agent Canvas — real-time + replay agent orchestration animation. */
-/* globals: query, rows, rowsToObjects, tsToMs, escapeSQLString, escapeHTML, t, sessTimelineData, fmtCost, loadPricing, modelPricing */
+/* globals: query, rows, rowsToObjects, tsToMs, escapeSQLString, escapeHTML, t, sessTimelineData, sessCurrentStats, fmtCost, loadPricing, modelPricing */
 
 var AgentCanvas = (function () {
   // ── Constants ────────────────────────────────────────────────
@@ -158,13 +158,17 @@ var AgentCanvas = (function () {
     }
   }
 
-  // Tool fade-out tracking.
+  // Tool fade-out and stale-running cleanup.
   function updateToolFades(dt) {
     for (var tid in toolCalls) {
       var tc = toolCalls[tid];
       if (tc.state === 'done' || tc.state === 'error') {
         tc.fadeOut = (tc.fadeOut || 0) + dt;
         if (tc.fadeOut > 0.6) delete toolCalls[tid];
+      } else if (tc.state === 'running') {
+        // Auto-expire running tools after 30s (handles rejected/interrupted tool calls).
+        tc.age = (tc.age || 0) + dt;
+        if (tc.age > 30) { tc.state = 'done'; }
       }
     }
   }
@@ -744,8 +748,9 @@ var AgentCanvas = (function () {
   }
 
   function onMouseUp() {
-    if (drag.active && !drag.isPan && !drag.target) {
-      // Was a click, not drag.
+    // Unpin dragged agent so it returns to force simulation.
+    if (drag.active && drag.target && agents[drag.target]) {
+      agents[drag.target].pinned = false;
     }
     drag.active = false;
     canvas.style.cursor = 'default';
