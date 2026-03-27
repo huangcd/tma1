@@ -38,6 +38,51 @@ func SetDatabaseTTL(httpPort int, ttl string, logger *slog.Logger) error {
 	return nil
 }
 
+// sessionTableDDLs are created unconditionally on startup (no dependency on trace data).
+var sessionTableDDLs = []string{
+	`CREATE TABLE IF NOT EXISTS tma1_hook_events (
+    ts                TIMESTAMP TIME INDEX,
+    session_id        STRING,
+    event_type        STRING,
+    agent_source      STRING,
+    tool_name         STRING NULL,
+    tool_input        STRING NULL,
+    tool_result       STRING NULL,
+    tool_use_id       STRING NULL,
+    agent_id          STRING NULL,
+    agent_type        STRING NULL,
+    notification_type STRING NULL,
+    "message"         STRING NULL,
+    cwd               STRING NULL,
+    transcript_path   STRING NULL,
+    PRIMARY KEY (session_id, event_type)
+)`,
+	`CREATE TABLE IF NOT EXISTS tma1_messages (
+    ts              TIMESTAMP TIME INDEX,
+    session_id      STRING,
+    message_type    STRING,
+    "role"          STRING,
+    content         STRING NULL,
+    model           STRING NULL,
+    tool_name       STRING NULL,
+    tool_use_id     STRING NULL,
+    PRIMARY KEY (session_id, message_type)
+)`,
+}
+
+// InitSessionTables creates the hook events and messages tables.
+// Called unconditionally on startup — these tables do not depend on trace data.
+func InitSessionTables(httpPort int, logger *slog.Logger) error {
+	sqlURL := fmt.Sprintf("http://localhost:%d/v1/sql", httpPort)
+	for _, ddl := range sessionTableDDLs {
+		if err := execSQL(sqlURL, ddl); err != nil {
+			return fmt.Errorf("init session tables: %w", err)
+		}
+	}
+	logger.Info("session tables initialized")
+	return nil
+}
+
 // InitFlows runs the flows.sql DDL against the GreptimeDB HTTP SQL API.
 // It is idempotent (all statements use IF NOT EXISTS).
 // Flow creation (CREATE FLOW) failures are non-fatal — they are logged as warnings

@@ -14,7 +14,7 @@ import (
 
 func newTestServer() *Server {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	return New(14000, "14318", http.Dir("."), logger)
+	return New(14000, "14318", http.Dir("."), logger, nil)
 }
 
 func TestHealthEndpoint(t *testing.T) {
@@ -94,7 +94,7 @@ func TestQueryEndpointRequiresSQL(t *testing.T) {
 func TestQueryEndpointBadGateway(t *testing.T) {
 	// Use a port that's not listening to get a connection error.
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(19999, "14318", http.Dir("."), logger)
+	srv := New(19999, "14318", http.Dir("."), logger, nil)
 	r := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query",
@@ -128,7 +128,7 @@ func TestPromProxyGETPassesQueryString(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/prom/label/__name__/values?match[]=up", nil)
@@ -169,7 +169,7 @@ func TestPromProxyPOSTPassesBody(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/prom/query_range",
@@ -196,7 +196,7 @@ func TestPromProxyPassesNon200Status(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/prom/query?query=invalid{", nil)
@@ -210,7 +210,7 @@ func TestPromProxyPassesNon200Status(t *testing.T) {
 
 func TestPromProxyBadGateway(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(19999, "14318", http.Dir("."), logger)
+	srv := New(19999, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/prom/query", nil)
@@ -244,7 +244,7 @@ func TestOTLPProxyTraces(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/otlp/v1/traces", strings.NewReader("trace-payload"))
@@ -276,7 +276,7 @@ func TestOTLPProxyMetrics(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/otlp/v1/metrics", strings.NewReader("metrics-payload"))
@@ -307,7 +307,7 @@ func TestOTLPDirectProxyTraces(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader("trace-payload"))
@@ -338,7 +338,7 @@ func TestOTLPDirectProxyLogs(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", strings.NewReader("log-payload"))
@@ -369,7 +369,7 @@ func TestOTLPDirectProxyMetrics(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/metrics", strings.NewReader("metrics-payload"))
@@ -403,7 +403,7 @@ func TestOTLPProxyPassthrough(t *testing.T) {
 	fmt.Sscanf(port, "%d", &portNum)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(portNum, "14318", http.Dir("."), logger)
+	srv := New(portNum, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/otlp/v1/logs", strings.NewReader("test-body"))
@@ -422,7 +422,7 @@ func TestOTLPProxyPassthrough(t *testing.T) {
 
 func TestOTLPProxyBadGateway(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(19999, "14318", http.Dir("."), logger)
+	srv := New(19999, "14318", http.Dir("."), logger, nil)
 	router := srv.Router()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/otlp/v1/traces", nil)
@@ -437,7 +437,7 @@ func TestOTLPProxyBadGateway(t *testing.T) {
 func TestStatusEndpointDegraded(t *testing.T) {
 	// Use a port that's not listening.
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	srv := New(19999, "14318", http.Dir("."), logger)
+	srv := New(19999, "14318", http.Dir("."), logger, nil)
 	r := srv.Router()
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
