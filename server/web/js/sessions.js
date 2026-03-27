@@ -266,7 +266,7 @@ async function sess_loadDetail(sessionId) {
   sessCurrentStats = sess_computeStats(hookEvents, messages, timeline);
 
   // Try to get actual cost from OTel logs (more accurate than content-length estimate).
-  try {
+  if (timeline.length > 0) try {
     var costRes = await query(
       "SELECT ROUND(SUM(json_get_float(log_attributes, 'cost_usd')), 4) AS cost " +
       "FROM opentelemetry_logs WHERE body = 'claude_code.api_request' " +

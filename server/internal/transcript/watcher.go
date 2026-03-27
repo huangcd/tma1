@@ -65,15 +65,24 @@ func (w *Watcher) Watch(sessionID, transcriptPath string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if _, ok := w.sessions[sessionID]; ok {
+	existing, ok := w.sessions[sessionID]
+	if ok && !existing.stopped {
 		return // already watching
 	}
 
+	// Reuse existing seen map to avoid re-inserting previously processed lines.
+	var seen map[string]struct{}
+	if ok && existing.seen != nil {
+		seen = existing.seen
+	} else {
+		seen = make(map[string]struct{})
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
-	sw := &sessionWatch{cancel: cancel, seen: make(map[string]struct{})}
+	sw := &sessionWatch{cancel: cancel, seen: seen}
 	w.sessions[sessionID] = sw
 
-	go w.tailFile(ctx, sessionID, transcriptPath, sw.seen)
+	go w.tailFile(ctx, sessionID, transcriptPath, seen)
 	w.logger.Info("started watching transcript", "session", sessionID, "path", transcriptPath)
 }
 
@@ -105,10 +114,12 @@ func (w *Watcher) StopAll() {
 }
 
 func (w *Watcher) tailFile(ctx context.Context, sessionID, filePath string, seen map[string]struct{}) {
-	// Clean up session registration on exit so Watch() can retry later.
+	// Mark as stopped on exit — preserves seen map so Watch() can retry without re-inserting.
 	defer func() {
 		w.mu.Lock()
-		delete(w.sessions, sessionID)
+		if sw, ok := w.sessions[sessionID]; ok {
+			sw.stopped = true
+		}
 		w.mu.Unlock()
 	}()
 
