@@ -21,7 +21,12 @@ const (
 // and starts watching any new ones. Codex doesn't send hooks, so we discover
 // session files by polling the filesystem.
 func (w *Watcher) StartCodexScanner(ctx context.Context) {
-	codexDir := filepath.Join(os.Getenv("HOME"), ".codex", "sessions")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		w.logger.Warn("codex scanner: cannot determine home directory", "error", err)
+		return
+	}
+	codexDir := filepath.Join(homeDir, ".codex", "sessions")
 	w.logger.Info("codex session scanner started", "path", codexDir)
 
 	ticker := time.NewTicker(codexScanInterval)

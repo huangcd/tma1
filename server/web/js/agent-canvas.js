@@ -876,6 +876,7 @@ var AgentCanvas = (function () {
     canvas.height = window.innerHeight * dpr;
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
   }
 
@@ -883,7 +884,7 @@ var AgentCanvas = (function () {
     var bar = document.getElementById('agent-canvas-controls');
     var html = '';
     if (mode === 'replay') {
-      html += '<button onclick="AgentCanvas.togglePause()" id="ac-pause-btn">\u23F8</button>';
+      html += '<button onclick="AgentCanvas.togglePause()" id="ac-pause-btn" aria-label="Pause/Play">\u23F8</button>';
       html += '<select onchange="AgentCanvas.setSpeed(Number(this.value))">';
       html += '<option value="0.5">0.5x</option><option value="1" selected>1x</option>';
       html += '<option value="2">2x</option><option value="5">5x</option>';
@@ -891,8 +892,8 @@ var AgentCanvas = (function () {
     } else {
       html += '<span class="ac-live-dot"></span> ' + t('canvas.live_label');
     }
-    html += '<button onclick="AgentCanvas.zoomToFit()" title="' + t('canvas.zoom_to_fit') + '">&#x2922;</button>';
-    html += '<button onclick="AgentCanvas.close()" class="ac-close">\u2715</button>';
+    html += '<button onclick="AgentCanvas.zoomToFit()" title="' + t('canvas.zoom_to_fit') + '" aria-label="' + t('canvas.zoom_to_fit') + '">&#x2922;</button>';
+    html += '<button onclick="AgentCanvas.close()" class="ac-close" aria-label="Close">\u2715</button>';
     bar.innerHTML = html;
   }
 

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -511,8 +512,12 @@ func TestHookStreamSSE(t *testing.T) {
 	srv := newTestServer()
 	r := srv.Router()
 
-	// Start SSE request in background.
+	// Use a cancelable context so the SSE goroutine terminates cleanly.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	req := httptest.NewRequest(http.MethodGet, "/api/hooks/stream", nil)
+	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 
 	done := make(chan struct{})
@@ -528,9 +533,10 @@ func TestHookStreamSSE(t *testing.T) {
 	srv.hookBroadcast.Broadcast([]byte(`{"session_id":"s1","hook_event_name":"PreToolUse"}`))
 	time.Sleep(50 * time.Millisecond)
 
-	// Cancel request context to stop SSE handler.
-	// httptest.NewRequest doesn't support context cancellation easily,
-	// so we just verify the broadcast was set up correctly.
+	// Stop the SSE handler.
+	cancel()
+	<-done
+
 	if srv.hookBroadcast == nil {
 		t.Fatal("hookBroadcast is nil")
 	}

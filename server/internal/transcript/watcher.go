@@ -31,6 +31,10 @@ const (
 	maxToolContent = 4096
 )
 
+// maxConcurrentInserts limits the number of concurrent SQL INSERT goroutines
+// to prevent overwhelming GreptimeDB when backfilling large transcripts.
+var insertSem = make(chan struct{}, 16)
+
 // Watcher manages per-session JSONL transcript file watchers.
 type Watcher struct {
 	mu       sync.Mutex
@@ -345,7 +349,11 @@ func (w *Watcher) insertMessage(sessionID, messageType, role, content, model, to
 		escapeSQLString(toolUseID),
 	)
 
-	go w.execSQL(sql)
+	go func() {
+		insertSem <- struct{}{}        // acquire
+		defer func() { <-insertSem }() // release
+		w.execSQL(sql)
+	}()
 }
 
 func (w *Watcher) execSQL(sql string) {

@@ -806,7 +806,7 @@ async function sess_search() {
   var iv = intervalSQL();
   var results = await Promise.all([
     query("SELECT session_id, ts, 'hook' AS src, event_type AS msg_type, tool_name, COALESCE(tool_input, '') AS content FROM tma1_hook_events WHERE (tool_name LIKE '%" + escapeSQLString(q) + "%' OR tool_input LIKE '%" + escapeSQLString(q) + "%' OR tool_result LIKE '%" + escapeSQLString(q) + "%') AND ts > NOW() - INTERVAL '" + iv + "' ORDER BY ts DESC LIMIT 25").catch(function() { return null; }),
-    query("SELECT session_id, ts, 'msg' AS src, message_type AS msg_type, '' AS tool_name, COALESCE(content, '') AS content FROM tma1_messages WHERE content LIKE '%" + escapeSQLString(q) + "%' AND ts > NOW() - INTERVAL '" + iv + "' ORDER BY ts DESC LIMIT 25").catch(function() { return null; }),
+    query("SELECT session_id, ts, 'msg' AS src, message_type AS msg_type, '' AS tool_name, COALESCE(content, '') AS content FROM tma1_messages WHERE matches_term(content, '" + escapeSQLString(q) + "') AND ts > NOW() - INTERVAL '" + iv + "' ORDER BY ts DESC LIMIT 25").catch(function() { return null; }),
   ]);
   var data = [];
   if (results[0]) data = data.concat(rowsToObjects(results[0]));
