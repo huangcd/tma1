@@ -276,7 +276,6 @@ func (w *Watcher) processLine(sessionID, line string, seen map[string]struct{}) 
 		strContent = strings.TrimSpace(strContent)
 		if strContent != "" && !isDup(emitType, strContent) {
 			w.insertMessage(sessionID, emitType, role, truncate(strContent, maxContentLen), model, "", "", usage)
-			usage = nil // only attach usage to the first message from this entry
 		}
 		return
 	}
