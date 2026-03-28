@@ -54,11 +54,12 @@ GreptimeDB  (managed by tma1-server)
     │  HTTP SQL API  port 14000
     ▼
 Browser dashboard (served by tma1-server)
-    ├── Claude Code view: Overview, Sessions, Tools, Cost, Search (from OTel metrics + logs)
-    ├── Codex view: Overview, Events, Cost, Search (from OTel logs with scope_name codex_*)
+    ├── Claude Code view: Overview, Tools, Cost, Anomalies, Sessions→ (from OTel metrics + logs)
+    ├── Codex view: Overview, Tools, Cost, Anomalies, Sessions→ (from OTel logs with scope_name codex_*)
     ├── OpenClaw view: Overview, Traces, Cost, Search (from openclaw.* trace attrs)
     ├── OTel GenAI view: Overview, Traces, Cost, Security, Search (from gen_ai.* trace attrs)
-    └── Sessions view: Session list, detail timeline, file heatmap, agent hierarchy, gantt, canvas animation
+    └── Sessions view: Session list, full-screen detail overlay (two-column: Insights + Timeline), file heatmap, agent hierarchy, gantt, canvas animation
+        ├── CC/Codex "Sessions→" is a link that jumps to Sessions view with agent_source filter
         ├── Replay mode: replay past sessions as agent orchestration animation
         └── Live mode: real-time SSE streaming of hook events → canvas visualization
 ```
@@ -97,7 +98,7 @@ Additionally, Claude Code hooks (configured in `~/.claude/settings.json`) send t
 
 Codex logs use `scope_name` (not `body`) as the event discriminator. Extract fields via `json_get_string(log_attributes, 'model')`, `json_get_int(log_attributes, 'input_token_count')`, etc.
 
-Additionally, Codex session logs at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` are auto-discovered and parsed by tma1-server. Tool calls, messages, and subagent hierarchy are extracted and stored in `tma1_hook_events` and `tma1_messages` (agent_source = 'codex'). No hook configuration needed.
+Additionally, Codex session logs at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` are auto-discovered and parsed by tma1-server. Tool calls, messages, and subagent hierarchy are extracted and stored in `tma1_hook_events` and `tma1_messages` (agent_source = 'codex'). The parser extracts `conversation_id` from `session_meta.payload.id` (= OTel `conversation.id`), emits `SubagentStop` on `task_complete` events, and captures `user_message` / `agent_message` events into `tma1_messages`. No hook configuration needed.
 
 **OpenClaw** → OTel traces + metrics:
 
@@ -145,8 +146,8 @@ Source columns use GenAI semantic conventions:
 
 | Table | Content |
 |-------|---------|
-| `tma1_hook_events` | Tool calls, subagent lifecycle, session events (from CC hooks + Codex JSONL parsing). append-only, SKIPPING INDEX on session_id, INVERTED INDEX on event_type/agent_source. |
-| `tma1_messages` | Conversation content: user/assistant/thinking messages, tool_use/tool_result (from JSONL transcripts). append-only, FULLTEXT INDEX on content for keyword search via `matches_term()`. |
+| `tma1_hook_events` | Tool calls, subagent lifecycle, session events (from CC hooks + Codex JSONL parsing). Columns include `conversation_id` (Codex conversation UUID from `session_meta.payload.id`). append-only, SKIPPING INDEX on session_id, INVERTED INDEX on event_type/agent_source. |
+| `tma1_messages` | Conversation content: user/assistant/thinking messages, tool_use/tool_result (from JSONL transcripts). Columns include `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens` (from CC JSONL assistant message usage). append-only, FULLTEXT INDEX on content for keyword search via `matches_term()`. |
 
 ## Commands
 
@@ -215,8 +216,8 @@ On first start, tma1 writes a default GreptimeDB config to `~/.tma1/config/stand
 | Transcript watcher (CC JSONL) | `server/internal/transcript/watcher.go` |
 | Codex session parser | `server/internal/transcript/codex.go` |
 | Dashboard UI | `server/web/index.html` |
-| Sessions view JS | `server/web/js/sessions.js` |
-| Agent Canvas animation | `server/web/js/agent-canvas.js` |
+| Sessions view JS | `server/web/js/sessions.js` — full-screen overlay + two-column layout (Insights + Timeline) + OTel API call enrichment |
+| Agent Canvas animation | `server/web/js/agent-canvas.js` — canvas animation + tool fade-out + subagent lifecycle |
 | Codex view JS | `server/web/js/codex.js` |
 | OpenClaw view JS | `server/web/js/openclaw.js` |
 | Embedded FS declaration | `server/web/web.go` |

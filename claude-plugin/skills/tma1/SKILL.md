@@ -9,8 +9,9 @@ allowed-tools: Bash
 
 You are helping the user query their local TMA1 observability data.
 
-TMA1 stores data from three kinds of sources:
-- **Claude Code** sends OTel **metrics** (cumulative counters) + **logs** (event stream)
+TMA1 stores data from four kinds of sources:
+- **Claude Code** sends OTel **metrics** (cumulative counters) + **logs** (event stream) + hooks + JSONL transcripts
+- **Codex** sends OTel **logs** + **metrics** + session JSONL (auto-parsed from `~/.codex/sessions/`)
 - **OpenClaw** sends OTel **traces** (spans with openclaw.* attributes) + **metrics** (openclaw_* tables)
 - **Other agents** (standard GenAI SDK) send OTel **traces** (spans with gen_ai.* semantic conventions)
 
@@ -32,9 +33,11 @@ curl -s -X POST http://localhost:14318/api/query \
 
 Check which tables exist to determine what queries to use:
 - If `claude_code_cost_usage_USD_total` exists → use Claude Code metrics queries
+- If `codex_turn_token_usage_sum` or `codex_*` tables exist → use Codex queries
 - If `openclaw_tokens_total` exists → use OpenClaw queries
 - If `opentelemetry_traces` exists → use traces-based queries (check column names to distinguish OpenClaw vs GenAI)
 - If `opentelemetry_logs` exists → use logs queries for event details
+- If `tma1_hook_events` or `tma1_messages` exists → use session/conversation queries
 
 ## Step 3: Choose and run query
 
@@ -466,19 +469,27 @@ ORDER BY p95_ms DESC
 
 ### Sessions (from hooks + JSONL transcripts)
 
+The `tma1_messages` table includes token usage columns: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens` (populated for assistant messages from JSONL transcripts). Both `tma1_hook_events` and `tma1_messages` include a `conversation_id` column linking events within the same conversation turn.
+
 ```sql
 -- List recent sessions with tool counts
-SELECT session_id, agent_source, MIN(ts) AS start_ts, MAX(ts) AS end_ts,
+SELECT session_id, conversation_id, agent_source, MIN(ts) AS start_ts, MAX(ts) AS end_ts,
   SUM(CASE WHEN event_type = 'PreToolUse' THEN 1 ELSE 0 END) AS tool_calls,
   SUM(CASE WHEN event_type = 'SubagentStart' THEN 1 ELSE 0 END) AS subagents
 FROM tma1_hook_events WHERE ts > NOW() - INTERVAL '24 hours'
-GROUP BY session_id, agent_source ORDER BY MIN(ts) DESC
+GROUP BY session_id, conversation_id, agent_source ORDER BY MIN(ts) DESC
 
 -- Search conversation content
-SELECT session_id, ts, message_type, content FROM tma1_messages
+SELECT session_id, conversation_id, ts, message_type, content FROM tma1_messages
 WHERE matches_term(content, 'search keyword')
   AND ts > NOW() - INTERVAL '7 days'
 ORDER BY ts DESC LIMIT 20
+
+-- Session token usage (from JSONL transcripts)
+SELECT session_id, SUM(input_tokens) AS input_tok, SUM(output_tokens) AS output_tok,
+  SUM(cache_read_tokens) AS cache_read, SUM(cache_creation_tokens) AS cache_write
+FROM tma1_messages WHERE message_type = 'assistant' AND ts > NOW() - INTERVAL '24 hours'
+GROUP BY session_id ORDER BY input_tok DESC
 
 -- Session tool breakdown
 SELECT tool_name, COUNT(*) AS calls FROM tma1_hook_events

@@ -81,7 +81,7 @@ TMA1 captures different data depending on the agent:
 | Agent | Data path | What it captures |
 | --- | --- | --- |
 | **Claude Code** | OTel metrics + logs + hooks | Token usage, cost, active time, tool decisions, API requests, user prompts, session conversations |
-| **Codex** | OTel logs + traces + metrics + hooks | User prompts, LLM calls, tool executions, token usage, session conversations |
+| **Codex** | OTel logs + metrics + session JSONL | User prompts, LLM calls, tool executions, token usage, session conversations |
 | **OpenClaw** | OTel traces + metrics | LLM calls (model, tokens, cache), messages, webhooks, sessions, queue depth |
 | **Other (GenAI SDK)** | OTel traces + logs | Token usage, cost, latency, conversation replay, prompt injection detection (GenAI semantic conventions) |
 
@@ -309,7 +309,7 @@ curl -s -X POST http://localhost:14318/api/query \
   | python3 -m json.tool
 ```
 
-If you see `opentelemetry_logs`, `opentelemetry_traces`, `openclaw_*`, `claude_code_*`, or `tma1_hook_events` tables, data is flowing.
+If you see `opentelemetry_logs`, `opentelemetry_traces`, `openclaw_*`, `claude_code_*`, `codex_*`, `tma1_hook_events`, or `tma1_messages` tables, data is flowing.
 
 ---
 

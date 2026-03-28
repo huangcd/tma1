@@ -11,22 +11,25 @@ the monolith buried on the moon, silently recording everything until you dig it 
 
 ## What You Get
 
-Four dedicated dashboard views, one per agent type:
+Five dashboard views, auto-detected from available data:
 
 | View | Tabs | Data Source |
 |------|------|-------------|
-| **Claude Code** | Overview, Sessions, Tools, Cost, Search | OTel metrics + logs |
-| **Codex** | Overview, Sessions, Tools, Cost | OTel logs + metrics |
+| **Claude Code** | Overview, Tools, Cost, Anomalies, Sessions→ | OTel metrics + logs |
+| **Codex** | Overview, Tools, Cost, Anomalies, Sessions→ | OTel logs + metrics |
 | **OpenClaw** | Overview, Sessions, Traces, Cost, Security | OTel traces + metrics |
 | **OTel GenAI** | Overview, Traces, Cost, Security, Search | OTel traces (gen_ai semantic conventions) |
+| **Sessions** | Sessions, Search | Hooks + JSONL transcripts (Claude Code, Codex) |
+
+Sessions→ links in Claude Code and Codex views navigate to the unified Sessions view.
 
 Every view includes:
 - **Token & cost cards** with burn-rate projections and cache efficiency
 - **Latency tracking** with p50/p95 percentiles per model
 - **Activity heatmap** showing usage patterns over time
 - **Metrics Explorer** for ad-hoc PromQL queries on raw OTel metrics
-- **Anomaly detection** flagging unusual token counts, high error rates, or slow responses
-- **Full-text search** across recorded events and traces (where applicable)
+- **Anomaly detection** (per-agent Anomalies tab) flagging unusual token counts, high error rates, or slow responses
+- **Session replay** and **full-text search** across conversations in the unified Sessions view
 - **SQL access** via MySQL protocol (port 14002) or the built-in query API
 
 Security tab (OpenClaw & OTel GenAI) adds shell command detection, prompt injection alerts, and webhook error tracking.
