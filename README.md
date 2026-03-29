@@ -3,17 +3,17 @@
 > *"Your agent runs. TMA1 remembers."*
 
 Local-first observability for AI agents.
-Track token usage, cost, latency, errors, and security signals across your AI agents — all on your machine.
-No cloud account, no Docker, no Grafana setup.
+See what your agents cost, how long they take, and whether they're doing anything weird. All data stays on your machine.
+No cloud account, no Docker, no Grafana.
 
 Named after TMA-1 (Tycho Magnetic Anomaly-1) from *2001: A Space Odyssey*:
 the monolith buried on the moon, silently recording everything until you dig it out.
 
 ![TMA1 Dashboard](site/public/screenshots/hero-dark.webp)
 
-## What You Get
+## What's in it
 
-Five dashboard views, auto-detected from available data:
+Five dashboard views, picked automatically from whatever data shows up:
 
 | View | Tabs | Data Source |
 |------|------|-------------|
@@ -25,16 +25,16 @@ Five dashboard views, auto-detected from available data:
 
 Sessions→ links in Claude Code and Codex views navigate to the unified Sessions view.
 
-Every view includes:
-- **Token & cost cards** with burn-rate projections and cache efficiency
-- **Latency tracking** with p50/p95 percentiles per model
-- **Activity heatmap** showing usage patterns over time
-- **Metrics Explorer** for ad-hoc PromQL queries on raw OTel metrics
-- **Anomaly detection** (per-agent Anomalies tab) flagging unusual token counts, high error rates, or slow responses
-- **Session replay** and **full-text search** across conversations in the unified Sessions view
-- **SQL access** via MySQL protocol (port 14002) or the built-in query API
+Each view gives you:
+- Token counts, cost, and burn rate per model
+- p50/p95 latency per model
+- Activity heatmap over time
+- Anomalies tab that flags expensive requests, errors, and slow tools
+- Session replay with full conversation timeline
+- Search across all sessions by keyword
+- SQL access on port 14002, or the built-in query API
 
-Security tab (OpenClaw & OTel GenAI) adds shell command detection, prompt injection alerts, and webhook error tracking.
+OpenClaw and OTel GenAI views also have a Security tab (shell commands, prompt injection, webhook errors).
 
 ![Session Detail](site/public/screenshots/sessions-dark.webp)
 
@@ -118,7 +118,7 @@ tma1-server  (port 14318)
 Browser dashboard (embedded in the binary)
 ```
 
-One process, one binary. On first start TMA1 sets up its data directory at `~/.tma1/` and is ready to receive data. All data stays on your machine.
+One process, one binary. First start creates `~/.tma1/` and you're good to go. Nothing leaves your machine.
 
 ## OTLP Endpoints
 
