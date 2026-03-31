@@ -212,6 +212,7 @@ function sess_openDetail(sessionId, agentSource, targetTs, apiCallFP) {
 }
 
 function sess_closeDetail() {
+  sessDetailVersion++; // invalidate any in-flight async load
   sessExpandedId = null;
   sessTimelineData = [];
   sessCurrentStats = null;

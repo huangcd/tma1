@@ -111,13 +111,48 @@ func ensureDefaultConfigFile(dataDir string, logger *slog.Logger) (string, error
 	}
 	migrated = setConfigVersion(migrated, currentConfigVersion)
 
-	if err := os.WriteFile(configPath, migrated, 0o644); err != nil {
+	if err := atomicWriteFile(configPath, migrated, 0o644); err != nil {
 		logger.Warn("greptimedb: config migration write failed, using old config", "error", err)
 		return configPath, nil
 	}
 
 	logger.Info("greptimedb: config upgraded", "from", oldVersion, "to", currentConfigVersion)
 	return configPath, nil
+}
+
+// atomicWriteFile writes data to a temp file in the same directory, then renames
+// it to the target path. This prevents corruption if the process crashes mid-write.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tma1-config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+	return nil
 }
 
 func startArgs(cfg Config, dataPath, configPath string) []string {

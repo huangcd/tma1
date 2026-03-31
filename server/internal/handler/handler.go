@@ -26,13 +26,12 @@ type Server struct {
 	httpClient        *http.Client
 	otlpClient        *http.Client
 	transcriptWatcher *transcript.Watcher
-	hookBroadcast     *hookBroadcaster
+	hookBroadcast     *HookBroadcaster
 }
 
 // New creates a new Server.
-func New(greptimeHTTPPort int, tma1Port string, webFS http.FileSystem, logger *slog.Logger, tw *transcript.Watcher) *Server {
-	bc := newHookBroadcaster()
-	s := &Server{
+func New(greptimeHTTPPort int, tma1Port string, webFS http.FileSystem, logger *slog.Logger, tw *transcript.Watcher, bc *HookBroadcaster) *Server {
+	return &Server{
 		greptimeHTTPPort:  greptimeHTTPPort,
 		tma1Port:          tma1Port,
 		logger:            logger,
@@ -42,11 +41,6 @@ func New(greptimeHTTPPort int, tma1Port string, webFS http.FileSystem, logger *s
 		transcriptWatcher: tw,
 		hookBroadcast:     bc,
 	}
-	// Wire broadcast so transcript watchers (Codex) can push events to SSE subscribers.
-	if tw != nil {
-		tw.SetBroadcast(bc.Broadcast)
-	}
-	return s
 }
 
 // Router returns the chi router with all routes registered.

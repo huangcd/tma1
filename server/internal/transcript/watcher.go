@@ -54,17 +54,14 @@ type sessionWatch struct {
 }
 
 // NewWatcher creates a transcript watcher that writes to the given GreptimeDB instance.
-func NewWatcher(greptimeHTTPPort int, logger *slog.Logger) *Watcher {
+// The optional broadcast callback fans out hook events to SSE subscribers.
+func NewWatcher(greptimeHTTPPort int, logger *slog.Logger, broadcast BroadcastFunc) *Watcher {
 	return &Watcher{
-		sessions: make(map[string]*sessionWatch),
-		sqlURL:   fmt.Sprintf("http://localhost:%d/v1/sql", greptimeHTTPPort),
-		logger:   logger,
+		sessions:  make(map[string]*sessionWatch),
+		sqlURL:    fmt.Sprintf("http://localhost:%d/v1/sql", greptimeHTTPPort),
+		logger:    logger,
+		broadcast: broadcast,
 	}
-}
-
-// SetBroadcast sets the callback used to fan out hook events to SSE subscribers.
-func (w *Watcher) SetBroadcast(fn BroadcastFunc) {
-	w.broadcast = fn
 }
 
 // Watch starts tailing a JSONL transcript file for the given session.
@@ -461,10 +458,10 @@ func (w *Watcher) broadcastHookEvent(sessionID, eventType, toolName, toolInput, 
 	payload := map[string]string{
 		"session_id":      sessionID,
 		"hook_event_name": eventType,
-		"tool_name":       toolName,
-		"tool_input":      toolInput,
+		"tool_name":       truncate(toolName, 256),
+		"tool_input":      truncate(toolInput, maxToolInput),
 		"tool_use_id":     toolUseID,
-		"tool_response":   toolResult,
+		"tool_response":   truncate(toolResult, maxToolContent),
 		"agent_id":        agentID,
 		"agent_type":      agentType,
 	}
