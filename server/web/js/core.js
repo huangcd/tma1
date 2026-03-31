@@ -249,11 +249,11 @@ function showCostDrilldown(anchorEl, tsSec, bucketSec, fetchFn) {
   popup.id = 'cost-drilldown-popup';
   popup.innerHTML = '<div class="drilldown-header">' +
     '<span class="drilldown-time">' + escapeHTML(timeLabel) + '</span>' +
-    '<span class="drilldown-title">' + t('drilldown.top_sessions') + '</span>' +
+    '<span class="drilldown-title">' + escapeHTML(t('drilldown.top_sessions')) + '</span>' +
     '<button class="drilldown-close" onclick="closeCostDrilldown()">\u00d7</button>' +
     '</div>' +
     '<div class="drilldown-body"><div class="loading" style="padding:12px;text-align:center">' +
-    t('empty.loading') + '</div></div>';
+    escapeHTML(t('empty.loading')) + '</div></div>';
 
   // Insert after the chart container's parent (.chart-container)
   var chartContainer = anchorEl.closest('.chart-container') || anchorEl;
@@ -280,7 +280,7 @@ function showCostDrilldown(anchorEl, tsSec, bucketSec, fetchFn) {
     if (!body) return;
     if (!items || !items.length) {
       body.innerHTML = '<div style="padding:12px;color:var(--text-dim);text-align:center">' +
-        t('empty.no_data') + '</div>';
+        escapeHTML(t('empty.no_data')) + '</div>';
       return;
     }
     var html = '<table class="data-table drilldown-table"><thead><tr>' +
@@ -301,6 +301,6 @@ function showCostDrilldown(anchorEl, tsSec, bucketSec, fetchFn) {
   }).catch(function() {
     var body = popup.querySelector('.drilldown-body');
     if (body) body.innerHTML = '<div style="padding:12px;color:var(--text-dim)">' +
-      t('empty.no_data') + '</div>';
+      escapeHTML(t('empty.no_data')) + '</div>';
   });
 }

@@ -43,10 +43,10 @@ function makeUPlotOpts(title, series, width, yFormatter) {
 }
 
 function parseBucketSeconds(bucketStr) {
-  var m = bucketStr.match(/^(\d+)\s+(minute|hour)/);
+  var m = bucketStr.match(/^(\d+)\s+(minutes?|hours?)/);
   if (!m) return 300;
   var n = Number(m[1]);
-  return m[2] === 'hour' ? n * 3600 : n * 60;
+  return m[2][0] === 'h' ? n * 3600 : n * 60;
 }
 
 function renderChart(containerId, data, seriesDefs, yFmt, onClickBucket) {
@@ -100,7 +100,15 @@ function renderChart(containerId, data, seriesDefs, yFmt, onClickBucket) {
     if (onClickBucket) {
       container.style.cursor = 'pointer';
       var cc = container.closest('.chart-container');
-      if (cc) cc.classList.add('chart-clickable');
+      if (cc && !cc.querySelector('.drilldown-hint')) {
+        var h3 = cc.querySelector('h3');
+        if (h3) {
+          var hint = document.createElement('span');
+          hint.className = 'drilldown-hint';
+          hint.textContent = t('drilldown.hint');
+          h3.appendChild(hint);
+        }
+      }
       chartInstances[containerId].over.addEventListener('click', function() {
         var idx = chartInstances[containerId].cursor.idx;
         if (idx == null) return;

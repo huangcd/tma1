@@ -207,8 +207,7 @@ header .tagline { font-size: 13px; color: var(--text-muted); }
   cursor: pointer; font-size: 16px; padding: 0 4px;
 }
 .drilldown-close:hover { color: var(--text-bright); }
-.chart-clickable h3::after {
-  content: 'click to drill down';
+.drilldown-hint {
   font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0;
   color: var(--text-dim); margin-left: 8px;
   opacity: 0.6;

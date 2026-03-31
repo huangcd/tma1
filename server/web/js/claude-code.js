@@ -165,12 +165,14 @@ async function cc_fetchCostDrilldown(tsStart, tsEnd, sortBy) {
     "json_get_float(log_attributes, 'cost_usd') AS cost_usd, " +
     "json_get_string(log_attributes, 'model') AS model, " +
     "COALESCE(json_get_int(log_attributes, 'input_tokens'), 0) + " +
-    "COALESCE(json_get_int(log_attributes, 'output_tokens'), 0) AS tokens, " +
+    "COALESCE(json_get_int(log_attributes, 'output_tokens'), 0) + " +
+    "COALESCE(json_get_int(log_attributes, 'cache_read_tokens'), 0) + " +
+    "COALESCE(json_get_int(log_attributes, 'cache_creation_tokens'), 0) AS tokens, " +
     "log_attributes " +
     "FROM opentelemetry_logs " +
     "WHERE body = 'claude_code.api_request' " +
     "  AND timestamp >= '" + tsStart + "' AND timestamp < '" + tsEnd + "' " +
-    "ORDER BY " + orderCol + " DESC LIMIT 50"
+    "ORDER BY " + orderCol + " DESC"
   );
   // Group by session.id in JS (dotted key can't be extracted via SQL)
   var groups = {};

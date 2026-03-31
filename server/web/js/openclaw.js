@@ -284,7 +284,8 @@ async function oc_fetchCostDrilldown(tsStart, tsEnd, sortBy) {
     "MAX(\"span_attributes.openclaw.model\") AS model, " +
     "MAX(timestamp) AS ts, " +
     "SUM(CAST(\"span_attributes.openclaw.tokens.input\" AS DOUBLE) + " +
-    "CAST(\"span_attributes.openclaw.tokens.output\" AS DOUBLE)) AS tokens, " +
+    "CAST(\"span_attributes.openclaw.tokens.output\" AS DOUBLE) + " +
+    "COALESCE(CAST(\"span_attributes.openclaw.tokens.cache_write\" AS DOUBLE), 0)) AS tokens, " +
     "SUM(" + costExpr + ") AS cost " +
     "FROM opentelemetry_traces " +
     "WHERE " + OC_MODEL_SPAN +

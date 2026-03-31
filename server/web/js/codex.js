@@ -274,12 +274,13 @@ async function cdx_fetchCostDrilldown(tsStart, tsEnd, sortBy) {
     "SELECT timestamp, " +
     "COALESCE(json_get_string(log_attributes, 'model'), 'unknown') AS model, " +
     "COALESCE(json_get_int(log_attributes, 'input_token_count'), 0) + " +
-    "COALESCE(json_get_int(log_attributes, 'output_token_count'), 0) AS tokens, " +
+    "COALESCE(json_get_int(log_attributes, 'output_token_count'), 0) + " +
+    "COALESCE(json_get_int(log_attributes, 'cached_token_count'), 0) AS tokens, " +
     estCost + " AS est_cost, " +
     "log_attributes " +
     cdx_logsFromWhere() + " AND " + cdx_requestPredicate() +
     "  AND timestamp >= '" + tsStart + "' AND timestamp < '" + tsEnd + "' " +
-    "ORDER BY " + orderCol + " DESC LIMIT 50"
+    "ORDER BY " + orderCol + " DESC"
   );
   // Group by conversation.id in JS (dotted key can't be extracted via SQL)
   var groups = {};
