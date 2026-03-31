@@ -387,6 +387,93 @@ Force reinstall (wipes all data): curl -fsSL https://tma1.ai/install.sh | TMA1_F
 
 ---
 
+## Troubleshooting
+
+`[AGENT]` When diagnosing issues, check logs first, then work through the common problems below.
+
+### Where to find logs
+
+- **TMA1 server**:
+  - macOS: `~/Library/Logs/tma1-server.log`
+  - Linux: `journalctl --user -u tma1-server`
+  - Windows: no log file by default — run `tma1-server` manually in a terminal to see output
+  - Debug mode: `TMA1_LOG_LEVEL=debug tma1-server`
+- **GreptimeDB**: `~/.tma1/data/logs/` (log files rotated automatically, up to 168 files)
+
+`[AGENT]` Read the relevant log file to diagnose the issue before suggesting fixes to the user.
+
+### Dashboard shows "Unhealthy" but error rate is 0%
+
+The health indicator uses default latency thresholds designed for general API calls (p95 > 5s = unhealthy). LLM calls routinely take 10–30+ seconds, so this is expected behavior for OpenClaw and GenAI workloads.
+
+**What to check:** Focus on the error rate, not latency color. If error rate is 0% and your requests are completing successfully, the service is healthy — the latency indicator is simply not calibrated for LLM call durations.
+
+### OpenClaw — Frequent "session.stuck" warnings
+
+OpenClaw emits `openclaw.session.stuck` spans when a session stays in `processing` state longer than `diagnostics.stuckSessionWarnMs`. The default timeout is short and triggers false positives during long-running agent tasks.
+
+**Fix:** Ask the user if they want to increase the stuck-session warning threshold:
+
+```bash
+# 120s — good for most long-running tasks
+openclaw config set diagnostics.stuckSessionWarnMs 120000
+# 300s — for very long tasks (large codebases, multi-step workflows)
+openclaw config set diagnostics.stuckSessionWarnMs 300000
+openclaw gateway restart
+```
+
+### No data showing after setup
+
+1. Verify TMA1 is running: `curl -sf http://localhost:14318/health`
+2. Verify database is healthy: `curl -sf http://localhost:14000/health`
+3. Check if tables exist:
+   ```bash
+   curl -s -X POST http://localhost:14318/api/query \
+     -H "Content-Type: application/json" \
+     -d '{"sql": "SHOW TABLES"}' | python3 -m json.tool
+   ```
+4. If no tables: the agent hasn't sent any data yet. Ensure the agent was restarted after configuring the OTel endpoint (Step 4), then wait ~1 minute and check again.
+5. If tables exist but dashboard is empty: check the time range selector — data might be outside the selected window.
+
+### Claude Code — Hook events not appearing in Sessions view
+
+1. Verify the hook script exists: `ls ~/.tma1/hooks/tma1-hook.sh`
+2. Verify `~/.claude/settings.json` has the `hooks` section (see Step 3 — Claude Code)
+3. Test the hook manually: `echo '{"type":"test"}' | ~/.tma1/hooks/tma1-hook.sh`
+4. If the script is missing, restart `tma1-server` — it auto-installs the hook script on startup.
+
+### Port already in use
+
+If tma1-server fails with `bind: address already in use`:
+
+1. Check which process holds the port:
+   ```bash
+   # macOS / Linux
+   lsof -i :14318
+   # Windows
+   netstat -ano | findstr 14318
+   ```
+2. If it's a previous tma1-server instance, kill it and restart.
+3. If another service uses the port, change TMA1's port via environment variable:
+   ```bash
+   TMA1_PORT=14319 tma1-server
+   ```
+   GreptimeDB ports can also be changed: `TMA1_GREPTIMEDB_HTTP_PORT`, `TMA1_GREPTIMEDB_GRPC_PORT`, `TMA1_GREPTIMEDB_MYSQL_PORT`.
+
+### GreptimeDB did not become healthy
+
+If startup fails with `greptimedb: did not become healthy: timeout after 30s`:
+
+1. Check if port 14000 is already in use: `lsof -i :14000`
+2. Check GreptimeDB logs: `ls ~/.tma1/data/logs/` and read the latest log file
+3. If the binary is corrupted, remove it and restart (tma1 will re-download):
+   ```bash
+   rm ~/.tma1/bin/greptime
+   tma1-server
+   ```
+
+---
+
 ## Query Reference
 
 For the complete SQL query catalog, troubleshooting, and examples, see:
