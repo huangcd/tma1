@@ -7,31 +7,145 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
+
+// fileChangedDedup tracks last FileChanged timestamp per session+path to suppress duplicates.
+// Key: "sessionID\x00filePath", Value: time.Time of last event.
+var fileChangedDedup sync.Map
+
+func init() {
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			cutoff := time.Now().Add(-2 * time.Minute)
+			fileChangedDedup.Range(func(key, value any) bool {
+				if t, ok := value.(time.Time); ok && t.Before(cutoff) {
+					fileChangedDedup.Delete(key)
+				}
+				return true
+			})
+		}
+	}()
+}
 
 const (
 	maxHookBody    = 1 << 20 // 1 MB
 	maxToolInput   = 2048
 	maxToolResult  = 4096
 	maxHookMessage = 4096
+	maxMetadata    = 8192
 )
 
-// hookPayload matches the JSON structure sent by Claude Code hooks via stdin.
+// knownHookFields are the fields extracted into dedicated columns.
+// Everything else goes into the metadata JSON column.
+var knownHookFields = map[string]bool{
+	"session_id":      true,
+	"hook_event_name": true,
+	"tool_name":       true,
+	"tool_input":      true,
+	"tool_use_id":     true,
+	"tool_response":   true,
+	"agent_id":        true,
+	"agent_type":      true,
+	"notification_type": true,
+	"message":         true,
+	"title":           true,
+	"cwd":             true,
+	"transcript_path": true,
+	"permission_mode": true,
+}
+
+// hookPayload holds the parsed hook event with known fields + extra metadata.
 type hookPayload struct {
-	SessionID        string `json:"session_id"`
-	HookEventName    string `json:"hook_event_name"`
-	ToolName         string `json:"tool_name"`
-	ToolInput        any    `json:"tool_input"`
-	ToolUseID        string `json:"tool_use_id"`
-	ToolResponse     any    `json:"tool_response"`
-	AgentID          string `json:"agent_id"`
-	AgentType        string `json:"agent_type"`
-	NotificationType string `json:"notification_type"`
-	Message          string `json:"message"`
-	Title            string `json:"title"`
-	CWD              string `json:"cwd"`
-	TranscriptPath   string `json:"transcript_path"`
+	SessionID        string
+	HookEventName    string
+	ToolName         string
+	ToolInput        any
+	ToolUseID        string
+	ToolResponse     any
+	AgentID          string
+	AgentType        string
+	NotificationType string
+	Message          string
+	Title            string
+	CWD              string
+	TranscriptPath   string
+	PermissionMode   string
+	Metadata         string // JSON blob of event-specific fields not in dedicated columns.
+}
+
+// parseHookPayload unmarshals the raw JSON into a hookPayload,
+// extracting known fields into dedicated struct fields and collecting
+// the rest into a metadata JSON string.
+func parseHookPayload(body []byte) (hookPayload, error) {
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return hookPayload{}, err
+	}
+
+	p := hookPayload{
+		SessionID:        getString(raw, "session_id"),
+		HookEventName:    getString(raw, "hook_event_name"),
+		ToolName:         getString(raw, "tool_name"),
+		ToolInput:        raw["tool_input"],
+		ToolUseID:        getString(raw, "tool_use_id"),
+		ToolResponse:     raw["tool_response"],
+		AgentID:          getString(raw, "agent_id"),
+		AgentType:        getString(raw, "agent_type"),
+		NotificationType: getString(raw, "notification_type"),
+		Message:          getString(raw, "message"),
+		Title:            getString(raw, "title"),
+		CWD:              getString(raw, "cwd"),
+		TranscriptPath:   getString(raw, "transcript_path"),
+		PermissionMode:   getString(raw, "permission_mode"),
+	}
+
+	// Collect remaining fields into metadata.
+	// Truncate individual string values so the marshalled JSON is always valid.
+	extra := make(map[string]any)
+	for k, v := range raw {
+		if !knownHookFields[k] {
+			if s, ok := v.(string); ok {
+				extra[k] = truncateStr(s, 2048)
+			} else {
+				extra[k] = v
+			}
+		}
+	}
+	if len(extra) > 0 {
+		b, _ := json.Marshal(extra)
+		if len(b) <= maxMetadata {
+			p.Metadata = string(b)
+		} else {
+			// Re-marshal with aggressive truncation to stay within limit.
+			for ek, ev := range extra {
+				if s, ok := ev.(string); ok && len(s) > 256 {
+					extra[ek] = truncateStr(s, 256)
+				}
+			}
+			b2, _ := json.Marshal(extra)
+			if len(b2) <= maxMetadata {
+				p.Metadata = string(b2)
+			}
+			// else: drop metadata entirely — too many non-string fields
+		}
+	}
+
+	return p, nil
+}
+
+func getString(m map[string]any, key string) string {
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
 }
 
 // handleHooks receives Claude Code / Codex hook events and stores them in GreptimeDB.
@@ -43,8 +157,8 @@ func (s *Server) handleHooks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload hookPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
+	payload, err := parseHookPayload(body)
+	if err != nil {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -84,6 +198,22 @@ func (s *Server) handleHooks(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
+	// Deduplicate FileChanged events: skip if same session+path within 1s.
+	if payload.HookEventName == "FileChanged" {
+		meta := hookMeta(payload)
+		fp, _ := meta["file_path"].(string)
+		if fp != "" {
+			key := payload.SessionID + "\x00" + fp
+			now := time.Now()
+			if prev, ok := fileChangedDedup.Load(key); ok {
+				if now.Sub(prev.(time.Time)) < time.Second {
+					return
+				}
+			}
+			fileChangedDedup.Store(key, now)
+		}
+	}
+
 	// Async INSERT into GreptimeDB.
 	go s.insertHookEvent(payload, agentSource, toolInput, toolResult)
 
@@ -98,8 +228,9 @@ func (s *Server) insertHookEvent(p hookPayload, agentSource, toolInput, toolResu
 	sql := fmt.Sprintf(
 		"INSERT INTO tma1_hook_events "+
 			"(ts, session_id, event_type, agent_source, tool_name, tool_input, tool_result, "+
-			"tool_use_id, agent_id, agent_type, notification_type, \"message\", cwd, transcript_path) "+
-			"VALUES (%d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')",
+			"tool_use_id, agent_id, agent_type, notification_type, \"message\", cwd, transcript_path, "+
+			"permission_mode, metadata) "+
+			"VALUES (%d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')",
 		now,
 		escapeSQLString(p.SessionID),
 		escapeSQLString(p.HookEventName),
@@ -114,6 +245,8 @@ func (s *Server) insertHookEvent(p hookPayload, agentSource, toolInput, toolResu
 		escapeSQLString(truncateStr(p.Message, maxHookMessage)),
 		escapeSQLString(truncateStr(p.CWD, 512)),
 		escapeSQLString(truncateStr(p.TranscriptPath, 512)),
+		escapeSQLString(truncateStr(p.PermissionMode, 64)),
+		escapeSQLString(p.Metadata),
 	)
 
 	sqlURL := fmt.Sprintf("http://localhost:%d/v1/sql", s.greptimeHTTPPort)
@@ -184,4 +317,16 @@ func truncateStr(s string, maxLen int) string {
 
 func escapeSQLString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
+}
+
+// hookMeta parses the metadata JSON string from a hookPayload.
+func hookMeta(p hookPayload) map[string]any {
+	if p.Metadata == "" {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(p.Metadata), &m); err != nil {
+		return nil
+	}
+	return m
 }

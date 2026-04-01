@@ -542,6 +542,38 @@ var AgentCanvas = (function () {
       if (edges[stopEdge]) edges[stopEdge].active = false;
       break;
     }
+    case 'PreCompact':
+      agents[mainId].state = 'thinking';
+      addBubble(mainId, t('canvas.compacting'), 'thinking');
+      break;
+    case 'PostCompact':
+      agents[mainId].state = 'thinking';
+      addBubble(mainId, t('canvas.compacted'), 'assistant');
+      break;
+    case 'PermissionRequest':
+      agents[mainId].state = 'idle';
+      addBubble(mainId, '\uD83D\uDD12 ' + (ev.tool_name || t('canvas.permission')), 'assistant');
+      break;
+    case 'PermissionDenied':
+      agents[mainId].state = 'error';
+      addBubble(mainId, t('canvas.denied') + ': ' + (ev.tool_name || ''), 'assistant');
+      break;
+    case 'UserPromptSubmit':
+      agents[mainId].state = 'thinking';
+      break;
+    case 'TaskCreated': {
+      var taskId = 'task_' + Date.now();
+      addAgent(taskId, 'task', false);
+      agents[taskId].state = 'thinking';
+      addEdge(mainId, taskId);
+      break;
+    }
+    case 'TaskCompleted': {
+      // Find the most recent task agent and mark complete.
+      var taskIds = Object.keys(agents).filter(function(k) { return k.indexOf('task_') === 0 && agents[k].state !== 'complete'; });
+      if (taskIds.length > 0) agents[taskIds[taskIds.length - 1]].state = 'complete';
+      break;
+    }
     case 'SessionEnd': case 'Stop':
       agents[mainId].state = 'complete'; break;
     }

@@ -159,6 +159,7 @@ async function switchView(viewId, skipHash) {
     var hasData = true;
     if (viewId === 'claude-code') {
       hasData = await cc_loadCards();
+      cc_loadTraceCards();
       if (hasData) cc_loadOverview();
     } else if (viewId === 'codex') {
       hasData = await cdx_loadCards();
@@ -299,6 +300,7 @@ function cc_onTabChange(tab) {
   else if (tab === 'cc-tools') cc_loadToolsTab();
   else if (tab === 'cc-cost') cc_loadCostTab();
   else if (tab === 'cc-anomalies') cc_loadAnomalies();
+  else if (tab === 'cc-traces') cc_loadTracesTab();
 }
 
 // Tab navigation (Sessions view)
@@ -380,6 +382,7 @@ async function refreshCurrentView() {
     }
   } else if (currentView === 'claude-code') {
     hasData = await cc_loadCards();
+    cc_loadTraceCards();
     if (hasData) {
       var activeTab2 = document.querySelector('#cc-tabs .tab.active');
       if (activeTab2) cc_onTabChange(activeTab2.dataset.cctab);
