@@ -174,7 +174,7 @@ async function oc_updateHealthIndicator(reqCount) {
       "WHERE " + OC_MODEL_SPAN + " AND timestamp > NOW() - INTERVAL '5 minutes'"
     );
     var r = rowsToObjects(res)[0] || {};
-    setHealthFromData(el, r);
+    setHealthFromData(el, r, { p95Red: 30000, p95Yellow: 10000 });
   } catch {
     el.className = 'health-indicator health-na';
     el.innerHTML = '<span class="health-dot"></span><span class="health-text">N/A</span>';

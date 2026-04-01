@@ -181,7 +181,12 @@ function costCaseSQL(modelExpr, inputExpr, outputExpr) {
     "CAST(" + outputExpr + " AS DOUBLE)*" + defaultPrice.o + "/1000000.0 END)";
 }
 
-function setHealthFromData(el, data) {
+function setHealthFromData(el, data, thresholds) {
+  var th = thresholds || {};
+  var p95Red = (th.p95Red != null) ? th.p95Red : 5000;
+  var p95Yellow = (th.p95Yellow != null) ? th.p95Yellow : 2000;
+  var errRed = (th.errRed != null) ? th.errRed : 5;
+  var errYellow = (th.errYellow != null) ? th.errYellow : 1;
   var total = Number(data.total) || 0;
   var errors = Number(data.errors) || 0;
   var p95 = Number(data.p95_ms) || 0;
@@ -190,9 +195,9 @@ function setHealthFromData(el, data) {
   var level, label;
   if (total === 0) {
     level = 'na'; label = t('health.na');
-  } else if (errRate > 5 || p95 > 5000) {
+  } else if (errRate > errRed || p95 > p95Red) {
     level = 'red'; label = t('health.unhealthy');
-  } else if (errRate > 1 || p95 > 2000) {
+  } else if (errRate > errYellow || p95 > p95Yellow) {
     level = 'yellow'; label = t('health.degraded');
   } else {
     level = 'green'; label = t('health.healthy');
