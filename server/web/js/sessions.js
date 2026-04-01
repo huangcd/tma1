@@ -179,7 +179,7 @@ function sess_escHandler(e) {
 var sessTargetTs = 0;          // timestamp (ms) for timeline scroll
 var sessApiCallFP = '';        // fingerprint string for API call highlight (e.g. "3,1035,698172" or nanosecond ts)
 
-function sess_openDetail(sessionId, agentSource, targetTs, apiCallFP) {
+function sess_openDetail(sessionId, agentSource, targetTs, apiCallFP, skipHash) {
   sessExpandedId = sessionId;
   sessTargetTs = targetTs || 0;
   sessApiCallFP = apiCallFP || '';
@@ -189,10 +189,11 @@ function sess_openDetail(sessionId, agentSource, targetTs, apiCallFP) {
   overlay.style.display = 'flex';
   document.removeEventListener('keydown', sess_escHandler);
   document.addEventListener('keydown', sess_escHandler);
+  if (!skipHash) updateHash();
   sess_loadDetail(sessionId, agentSource || '');
 }
 
-function sess_closeDetail() {
+function sess_closeDetail(skipHash) {
   sessDetailVersion++; // invalidate any in-flight async load
   sessExpandedId = null;
   sessTimelineData = [];
@@ -201,6 +202,7 @@ function sess_closeDetail() {
   overlay.style.display = 'none';
   document.getElementById('sess-detail-content').innerHTML = '';
   document.removeEventListener('keydown', sess_escHandler);
+  if (!skipHash) updateHash();
 }
 
 // ── Load Detail Data ──────────────────────────────────────────────────

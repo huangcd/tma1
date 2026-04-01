@@ -114,7 +114,11 @@ function updateHash() {
   } else if (currentView === 'sessions') {
     var sessTab = document.querySelector('#sess-tabs .tab.active');
     var sessTabName = sessTab ? sessTab.dataset.sesstab : null;
-    if (sessTabName && sessTabName !== 'sess-list') hash += '/' + sessTabName;
+    if (sessExpandedId) {
+      hash += '/' + (sessTabName || 'sess-list') + '/' + encodeURIComponent(sessExpandedId);
+    } else if (sessTabName && sessTabName !== 'sess-list') {
+      hash += '/' + sessTabName;
+    }
   } else if (currentView === 'traces') {
     var tab2 = document.querySelector('#view-traces .tab.active');
     var tabName2 = tab2 ? tab2.dataset.tab : null;
@@ -129,14 +133,14 @@ function updateHash() {
 
 function parseHash() {
   var h = location.hash.replace('#', '');
-  if (!h) return { view: null, tab: null, range: null };
+  if (!h) return { view: null, tab: null, range: null, sessionId: null };
   var parts = h.split('/');
   var validRanges = ['15m', '30m', '1h', '6h', '24h', '7d', '30d'];
   var range = null;
   if (parts.length > 0 && validRanges.includes(parts[parts.length - 1])) {
     range = parts.pop();
   }
-  return { view: parts[0] || null, tab: parts[1] || null, range: range };
+  return { view: parts[0] || null, tab: parts[1] || null, sessionId: parts[2] || null, range: range };
 }
 
 async function switchView(viewId, skipHash) {
@@ -239,6 +243,9 @@ async function initViews() {
     } else if (targetView === 'sessions') {
       var tabBtnSess = document.querySelector('#sess-tabs .tab[data-sesstab="' + hash.tab + '"]');
       if (tabBtnSess) tabBtnSess.click();
+      if (hash.sessionId) {
+        sess_openDetail(decodeURIComponent(hash.sessionId), '', 0, '', true);
+      }
     } else if (targetView === 'traces') {
       var tabBtn2 = document.querySelector('#view-traces .tab[data-tab="' + hash.tab + '"]');
       if (tabBtn2) tabBtn2.click();
@@ -594,6 +601,12 @@ window.addEventListener('popstate', function() {
       // Restore sub-tab if present.
       var tabBtn = document.querySelector('[data-cctab="' + hash.tab + '"],[data-cdxtab="' + hash.tab + '"],[data-octab="' + hash.tab + '"],[data-sesstab="' + hash.tab + '"]');
       if (tabBtn) tabBtn.click();
+    }
+    // Restore or close session detail overlay.
+    if (hash.view === 'sessions' && hash.sessionId) {
+      sess_openDetail(decodeURIComponent(hash.sessionId), '', 0, '', true);
+    } else if (hash.view === 'sessions' && sessExpandedId) {
+      sess_closeDetail(true);
     }
   }
 });
