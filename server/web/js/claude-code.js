@@ -1042,3 +1042,184 @@ async function cc_loadToolFailures() {
     tbody.innerHTML = '<tr><td colspan="4" class="loading">' + t('error.load_failures') + '</td></tr>';
   }
 }
+
+// ===================================================================
+// Claude Code view — CC Trace KPI cards + Traces tab
+// ===================================================================
+
+var ccHasTraces = false;
+
+// Cache trace detection in localStorage to avoid repeated COUNT(*) queries.
+// Cache expires after 5 minutes or on time range change.
+var CC_TRACE_CACHE_KEY = 'tma1_cc_has_traces';
+var CC_TRACE_CACHE_TTL_HIT = 5 * 60 * 1000;   // 5 min when traces found
+var CC_TRACE_CACHE_TTL_MISS = 30 * 1000;       // 30 s when no traces yet
+
+function cc_getCachedTraceDetection(iv) {
+  try {
+    var raw = localStorage.getItem(CC_TRACE_CACHE_KEY);
+    if (!raw) return null;
+    var c = JSON.parse(raw);
+    var ttl = c.has ? CC_TRACE_CACHE_TTL_HIT : CC_TRACE_CACHE_TTL_MISS;
+    if (c.iv !== iv || Date.now() - c.ts > ttl) return null;
+    return c.has;
+  } catch (e) { return null; }
+}
+
+function cc_setCachedTraceDetection(iv, has) {
+  try { localStorage.setItem(CC_TRACE_CACHE_KEY, JSON.stringify({ iv: iv, has: has, ts: Date.now() })); } catch (e) { /* quota */ }
+}
+
+// Detect CC trace data and load trace KPI cards.
+async function cc_loadTraceCards() {
+  var iv = intervalSQL();
+
+  // Fast path: use cached detection result.
+  var cached = cc_getCachedTraceDetection(iv);
+  if (cached === false) {
+    ccHasTraces = false;
+    document.getElementById('cc-trace-cards').style.display = 'none';
+    document.getElementById('cc-traces-tab').style.display = 'none';
+    return;
+  }
+
+  try {
+    // Skip detection query if cache says traces exist.
+    var cnt = 1;
+    if (cached !== true) {
+      var countRes = await query(
+        "SELECT COUNT(*) AS v FROM opentelemetry_traces " +
+        "WHERE span_name = 'claude_code.llm_request' " +
+        "AND timestamp > NOW() - INTERVAL '" + iv + "'"
+      );
+      cnt = Number(rows(countRes)?.[0]?.[0]) || 0;
+    }
+    cc_setCachedTraceDetection(iv, cnt > 0);
+    if (cnt === 0) {
+      ccHasTraces = false;
+      document.getElementById('cc-trace-cards').style.display = 'none';
+      document.getElementById('cc-traces-tab').style.display = 'none';
+      return;
+    }
+    ccHasTraces = true;
+    document.getElementById('cc-trace-cards').style.display = '';
+    document.getElementById('cc-traces-tab').style.display = '';
+
+    var results = await Promise.all([
+      // Avg TTFT
+      query("SELECT ROUND(AVG(\"span_attributes.ttft_ms\"), 0) FROM opentelemetry_traces WHERE span_name = 'claude_code.llm_request' AND \"span_attributes.ttft_ms\" IS NOT NULL AND timestamp > NOW() - INTERVAL '" + iv + "'"),
+      // Output speed: total output_tokens / total duration_ms * 1000
+      query("SELECT ROUND(SUM(\"span_attributes.output_tokens\") * 1000.0 / NULLIF(SUM(duration_nano / 1000000), 0), 1) FROM opentelemetry_traces WHERE span_name = 'claude_code.llm_request' AND timestamp > NOW() - INTERVAL '" + iv + "'"),
+      // Cache hit rate
+      query("SELECT ROUND(SUM(\"span_attributes.cache_read_tokens\") * 100.0 / NULLIF(SUM(\"span_attributes.cache_read_tokens\" + COALESCE(\"span_attributes.cache_creation_tokens\", 0) + COALESCE(\"span_attributes.input_tokens\", 0)), 0), 1) FROM opentelemetry_traces WHERE span_name = 'claude_code.llm_request' AND timestamp > NOW() - INTERVAL '" + iv + "'"),
+      // Total permission wait
+      query("SELECT ROUND(SUM(duration_nano / 1000000.0), 0) FROM opentelemetry_traces WHERE span_name = 'claude_code.tool.blocked_on_user' AND timestamp > NOW() - INTERVAL '" + iv + "'"),
+      // Avg LLM latency
+      query("SELECT ROUND(AVG(duration_nano / 1000000.0), 0) FROM opentelemetry_traces WHERE span_name = 'claude_code.llm_request' AND timestamp > NOW() - INTERVAL '" + iv + "'"),
+    ]);
+
+    var ttft = Number(rows(results[0])?.[0]?.[0]) || 0;
+    var speed = Number(rows(results[1])?.[0]?.[0]) || 0;
+    var cacheHit = Number(rows(results[2])?.[0]?.[0]) || 0;
+    var permWait = Number(rows(results[3])?.[0]?.[0]) || 0;
+    var llmLat = Number(rows(results[4])?.[0]?.[0]) || 0;
+
+    document.getElementById('cc-val-ttft').textContent = ttft > 0 ? fmtDurMs(ttft) : '\u2014';
+    document.getElementById('cc-val-throughput').textContent = speed > 0 ? speed + ' tok/s' : '\u2014';
+    document.getElementById('cc-val-cache-hit').textContent = cacheHit > 0 ? cacheHit + '%' : '\u2014';
+    document.getElementById('cc-val-perm-wait').textContent = permWait > 0 ? fmtDurMs(permWait) : '\u2014';
+    document.getElementById('cc-val-llm-latency').textContent = llmLat > 0 ? fmtDurMs(llmLat) : '\u2014';
+  } catch {
+    ccHasTraces = false;
+  }
+}
+
+// ===================================================================
+// Traces tab — 4 charts
+// ===================================================================
+async function cc_loadTracesTab() {
+  if (!ccHasTraces) return;
+  await Promise.all([
+    cc_loadTTFTChart(),
+    cc_loadLLMLatencyChart(),
+    cc_loadCacheChart(),
+    cc_loadThroughputChart(),
+  ]);
+}
+
+async function cc_loadTTFTChart() {
+  try {
+    var res = await query(
+      "SELECT date_bin('" + chartBucket() + "'::INTERVAL, timestamp) AS t, " +
+      "ROUND(AVG(\"span_attributes.ttft_ms\"), 0) AS avg_ttft " +
+      "FROM opentelemetry_traces " +
+      "WHERE span_name = 'claude_code.llm_request' " +
+      "AND \"span_attributes.ttft_ms\" IS NOT NULL " +
+      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "' " +
+      "GROUP BY t ORDER BY t"
+    );
+    var data = rowsToObjects(res);
+    if (!data.length) return;
+    renderChart('cc-chart-ttft', data, [
+      { key: 'avg_ttft', label: 'TTFT (ms)', color: '#d2a8ff' },
+    ], fmtDurMs);
+  } catch { /* no data */ }
+}
+
+async function cc_loadLLMLatencyChart() {
+  try {
+    var res = await query(
+      "SELECT date_bin('" + chartBucket() + "'::INTERVAL, timestamp) AS t, " +
+      "ROUND(AVG(duration_nano / 1000000.0), 0) AS avg_lat " +
+      "FROM opentelemetry_traces " +
+      "WHERE span_name = 'claude_code.llm_request' " +
+      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "' " +
+      "GROUP BY t ORDER BY t"
+    );
+    var data = rowsToObjects(res);
+    if (!data.length) return;
+    renderChart('cc-chart-llm-latency', data, [
+      { key: 'avg_lat', label: 'Latency (ms)', color: '#79c0ff' },
+    ], fmtDurMs);
+  } catch { /* no data */ }
+}
+
+async function cc_loadCacheChart() {
+  try {
+    var res = await query(
+      "SELECT date_bin('" + chartBucket() + "'::INTERVAL, timestamp) AS t, " +
+      "SUM(\"span_attributes.cache_read_tokens\") AS cache_read, " +
+      "SUM(COALESCE(\"span_attributes.cache_creation_tokens\", 0)) AS cache_create, " +
+      "SUM(COALESCE(\"span_attributes.input_tokens\", 0)) AS input_tok " +
+      "FROM opentelemetry_traces " +
+      "WHERE span_name = 'claude_code.llm_request' " +
+      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "' " +
+      "GROUP BY t ORDER BY t"
+    );
+    var data = rowsToObjects(res);
+    if (!data.length) return;
+    renderChart('cc-chart-cache', data, [
+      { key: 'cache_read', label: 'Cache Read', color: '#3fb950' },
+      { key: 'cache_create', label: 'Cache Create', color: '#f0883e' },
+      { key: 'input_tok', label: 'Input', color: '#79c0ff' },
+    ], fmtNum);
+  } catch { /* no data */ }
+}
+
+async function cc_loadThroughputChart() {
+  try {
+    var res = await query(
+      "SELECT date_bin('" + chartBucket() + "'::INTERVAL, timestamp) AS t, " +
+      "ROUND(SUM(\"span_attributes.output_tokens\") * 1000.0 / NULLIF(SUM(duration_nano / 1000000), 0), 1) AS tps " +
+      "FROM opentelemetry_traces " +
+      "WHERE span_name = 'claude_code.llm_request' " +
+      "AND timestamp > NOW() - INTERVAL '" + intervalSQL() + "' " +
+      "GROUP BY t ORDER BY t"
+    );
+    var data = rowsToObjects(res);
+    if (!data.length) return;
+    renderChart('cc-chart-throughput', data, [
+      { key: 'tps', label: 'tok/s', color: '#3fb950' },
+    ]);
+  } catch { /* no data */ }
+}

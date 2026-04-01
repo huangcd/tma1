@@ -83,6 +83,8 @@ var sessionTableDDLs = []string{
 // GreptimeDB returns an error if the column already exists, which we silently ignore.
 var sessionTableUpgrades = []string{
 	`ALTER TABLE tma1_hook_events ADD COLUMN conversation_id STRING NULL`,
+	`ALTER TABLE tma1_hook_events ADD COLUMN permission_mode STRING NULL`,
+	`ALTER TABLE tma1_hook_events ADD COLUMN metadata STRING NULL`,
 	`ALTER TABLE tma1_messages ADD COLUMN input_tokens BIGINT NULL`,
 	`ALTER TABLE tma1_messages ADD COLUMN output_tokens BIGINT NULL`,
 	`ALTER TABLE tma1_messages ADD COLUMN cache_read_tokens BIGINT NULL`,

@@ -124,11 +124,36 @@
       </div>
     </div>
 
+    <!-- Trace-based KPI cards (hidden when no CC trace data) -->
+    <div class="cards cards-5" id="cc-trace-cards" style="display:none">
+      <div class="card">
+        <div class="label" data-i18n="card.avg_ttft">Avg TTFT</div>
+        <div class="value latency" id="cc-val-ttft">&mdash;</div>
+      </div>
+      <div class="card">
+        <div class="label" data-i18n="card.output_speed">Output Speed</div>
+        <div class="value tokens" id="cc-val-throughput">&mdash;</div>
+      </div>
+      <div class="card">
+        <div class="label" data-i18n="card.cache_hit">Cache Hit</div>
+        <div class="value requests" id="cc-val-cache-hit">&mdash;</div>
+      </div>
+      <div class="card">
+        <div class="label" data-i18n="card.perm_wait">Perm Wait</div>
+        <div class="value cost" id="cc-val-perm-wait">&mdash;</div>
+      </div>
+      <div class="card">
+        <div class="label" data-i18n="card.llm_latency">Avg LLM Latency</div>
+        <div class="value latency" id="cc-val-llm-latency">&mdash;</div>
+      </div>
+    </div>
+
     <div class="tabs" id="cc-tabs">
       <button class="tab active" data-cctab="cc-overview" data-i18n="tab.cc_overview">Overview</button>
       <button class="tab" data-cctab="cc-tools" data-i18n="tab.cc_tools">Tools</button>
       <button class="tab" data-cctab="cc-cost" data-i18n="tab.cc_cost">Cost</button>
       <button class="tab" data-cctab="cc-anomalies" data-i18n="tab.cc_anomalies">Anomalies</button>
+      <button class="tab" data-cctab="cc-traces" id="cc-traces-tab" style="display:none" data-i18n="tab.cc_traces">Traces</button>
       <button class="tab" data-link="sessions" onclick="switchToSessions('claude_code')" data-i18n="tab.sessions">Sessions</button>
     </div>
 
@@ -288,6 +313,28 @@
         <h3 data-i18n="section.anomaly_highlights">Anomaly Highlights</h3>
         <div class="anomaly-list" id="cc-anomaly-list">
           <div class="loading" data-i18n="empty.loading_anomalies">Loading anomalies...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CC Traces (visible only when CC trace data exists) -->
+    <div class="tab-content" id="tab-cc-traces">
+      <div class="trace-charts">
+        <div class="chart-container">
+          <h3 data-i18n="section.ttft_over_time">TTFT Over Time</h3>
+          <div id="cc-chart-ttft"><div class="chart-empty" data-i18n="empty.waiting_trace">Waiting for trace data...</div></div>
+        </div>
+        <div class="chart-container">
+          <h3 data-i18n="section.llm_latency_over_time">LLM Latency Over Time</h3>
+          <div id="cc-chart-llm-latency"><div class="chart-empty" data-i18n="empty.waiting_trace">Waiting for trace data...</div></div>
+        </div>
+        <div class="chart-container">
+          <h3 data-i18n="section.cache_utilization">Cache Utilization</h3>
+          <div id="cc-chart-cache"><div class="chart-empty" data-i18n="empty.waiting_trace">Waiting for trace data...</div></div>
+        </div>
+        <div class="chart-container">
+          <h3 data-i18n="section.output_throughput">Output Throughput</h3>
+          <div id="cc-chart-throughput"><div class="chart-empty" data-i18n="empty.waiting_trace">Waiting for trace data...</div></div>
         </div>
       </div>
     </div>
@@ -1161,6 +1208,11 @@
   <script src="/js/claude-code.js"></script>
   <script src="/js/codex.js"></script>
   <script src="/js/openclaw.js"></script>
+  <script src="/js/sessions-stats.js"></script>
+  <script src="/js/sessions-timeline.js"></script>
+  <script src="/js/sessions-insights.js"></script>
+  <script src="/js/sessions-waterfall.js"></script>
+  <script src="/js/sessions-detail.js"></script>
   <script src="/js/sessions.js"></script>
   <script src="/js/agent-canvas.js"></script>
   <script src="/js/views.js"></script>

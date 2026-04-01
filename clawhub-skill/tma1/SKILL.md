@@ -197,40 +197,49 @@ Add to `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`
 ```json
 {
   "env": {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:14318/v1/otlp",
     "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
     "OTEL_METRICS_EXPORTER": "otlp",
-    "OTEL_LOGS_EXPORTER": "otlp"
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_TRACES_EXPORTER": "otlp"
   },
   "hooks": {
-    "PreToolUse": [
-      { "hooks": [{ "type": "command", "command": "~/.tma1/hooks/tma1-hook.sh", "timeout": 2 }] }
-    ],
-    "PostToolUse": [
-      { "hooks": [{ "type": "command", "command": "~/.tma1/hooks/tma1-hook.sh", "timeout": 2 }] }
-    ],
-    "PostToolUseFailure": [
-      { "hooks": [{ "type": "command", "command": "~/.tma1/hooks/tma1-hook.sh", "timeout": 2 }] }
-    ],
-    "SubagentStart": [
-      { "hooks": [{ "type": "command", "command": "~/.tma1/hooks/tma1-hook.sh", "timeout": 2 }] }
-    ],
-    "SubagentStop": [
-      { "hooks": [{ "type": "command", "command": "~/.tma1/hooks/tma1-hook.sh", "timeout": 2 }] }
-    ],
-    "Notification": [
-      { "hooks": [{ "type": "command", "command": "~/.tma1/hooks/tma1-hook.sh", "timeout": 2 }] }
-    ],
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "~/.tma1/hooks/tma1-hook.sh", "timeout": 2 }] }
-    ]
+    "SessionStart": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "SubagentStart": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "Notification": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "Stop": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "PreCompact": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "PostCompact": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "PermissionDenied": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "TaskCreated": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "TaskCompleted": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "FileChanged": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "CwdChanged": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "InstructionsLoaded": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "Elicitation": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "ElicitationResult": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "WorktreeCreate": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "WorktreeRemove": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "StopFailure": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "Setup": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "TeammateIdle": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }],
+    "ConfigChange": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:14318/api/hooks", "timeout": 3 }] }]
   }
 }
 ```
 
-Claude Code exports metrics and logs (not traces). The metrics/logs exporters must be explicitly enabled.
+Claude Code exports metrics, logs, and traces (when enhanced telemetry enabled). `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` enables trace spans (TTFT, tool timing, permission waits) for the Traces tab and waterfall visualization.
 
-The `hooks` section enables session-level conversation tracking (tool calls, subagent hierarchy, conversation replay) in the Sessions view. The hook script is auto-installed by tma1-server at `~/.tma1/hooks/tma1-hook.sh` (Unix) or `%USERPROFILE%\.tma1\hooks\tma1-hook.ps1` (Windows). On Windows, use `powershell -File %USERPROFILE%\.tma1\hooks\tma1-hook.ps1` as the command. If existing hooks are present, merge — do not replace them.
+The `hooks` section uses HTTP hooks (direct POST, no shell script needed) for all 27 event types. This enables session-level conversation tracking (tool calls, subagent hierarchy, context compaction, permission flow, file changes) in the Sessions view. If existing hooks are present, merge — do not replace them.
 
 #### Codex
 
