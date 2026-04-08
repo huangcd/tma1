@@ -151,7 +151,7 @@ func (s *Server) handleEvaluateCheck(w http.ResponseWriter) {
 func (s *Server) handleEvaluatePrompt(w http.ResponseWriter, r *http.Request) {
 	llm := s.getLLMConfig()
 	if !llm.Available() {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "LLM not configured. Set TMA1_LLM_API_KEY environment variable."})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "LLM not configured. Set the API key in Settings or via TMA1_LLM_API_KEY env var."})
 		return
 	}
 
@@ -369,7 +369,7 @@ Rules:
 func (s *Server) handleEvaluateSummary(w http.ResponseWriter, r *http.Request) {
 	llm := s.getLLMConfig()
 	if !llm.Available() {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "LLM not configured. Set TMA1_LLM_API_KEY in Settings."})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "LLM not configured. Set the API key in Settings or via TMA1_LLM_API_KEY env var."})
 		return
 	}
 

@@ -84,13 +84,13 @@ func (s *Server) Router() http.Handler {
 	r.Post("/api/hooks", s.handleHooks)
 	r.Get("/api/hooks/stream", s.handleHookStream)
 
-	// Prompt evaluation (LLM-as-judge).
-	r.HandleFunc("/api/evaluate", s.handleEvaluate)
-	r.Post("/api/evaluate/summary", s.handleEvaluateSummary)
+	// Prompt evaluation (LLM-as-judge) — origin-checked to prevent CSRF.
+	r.HandleFunc("/api/evaluate", s.requireLocalOrigin(s.handleEvaluate))
+	r.Post("/api/evaluate/summary", s.requireLocalOrigin(s.handleEvaluateSummary))
 
-	// Settings (read/write server-side configuration).
+	// Settings (read/write server-side configuration) — origin-checked.
 	r.Get("/api/settings", s.handleGetSettings)
-	r.Post("/api/settings", s.handleSaveSettings)
+	r.Post("/api/settings", s.requireLocalOrigin(s.handleSaveSettings))
 
 	// OTLP proxy — agents send OTel data here; tma1-server injects
 	// the x-greptime-pipeline-name header for trace requests.
@@ -255,6 +255,26 @@ func (s *Server) proxyOTLP(w http.ResponseWriter, r *http.Request, subPath strin
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// requireLocalOrigin rejects browser requests from foreign origins (CSRF protection).
+// Non-browser clients (curl, agents) typically omit Origin and are allowed through.
+func (s *Server) requireLocalOrigin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			allowed := map[string]bool{
+				"http://localhost:" + s.tma1Port:  true,
+				"http://127.0.0.1:" + s.tma1Port:  true,
+				"http://[::1]:" + s.tma1Port:      true,
+			}
+			if !allowed[origin] {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "request blocked: origin " + origin + " not allowed"})
+				return
+			}
+		}
+		next(w, r)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

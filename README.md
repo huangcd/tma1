@@ -127,9 +127,9 @@ tma1-server  (port 14318)
 Browser dashboard (embedded in the binary)
 ```
 
-One process, one binary. First start creates `~/.tma1/` and you're good to go. Nothing leaves your machine.
+One process, one binary. First start creates `~/.tma1/` and you're good to go. By default, nothing leaves your machine. If you enable optional LLM prompt evaluation (via Settings or `TMA1_LLM_API_KEY`), prompt content is sent to the configured provider (Anthropic/OpenAI) for scoring.
 
-LLM and server settings configured in the dashboard are saved to `~/.tma1/settings.json`. Environment variables always take priority over the settings file.
+Settings configured in the dashboard are saved to `~/.tma1/settings.json`. Environment variables always take priority over the settings file.
 
 ## OTLP Endpoints
 

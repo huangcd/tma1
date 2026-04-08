@@ -304,8 +304,10 @@ function pr_getSuggestions(content, dims, sess, tools) {
 // ============================================================
 
 var prTotalPrompts = 0; // full count from DB (may exceed analyzed)
+var prDataCache = null; // { range: string, data: scored[] }
 
 async function pr_loadCards() {
+  prDataCache = null; // invalidate on every cards reload (refresh / time range change)
   var iv = intervalSQL();
   try {
     var res = await query(
@@ -328,6 +330,12 @@ async function pr_loadCards() {
 }
 
 async function pr_loadData() {
+  // Return cached data if time range hasn't changed.
+  if (prDataCache && prDataCache.range === currentTimeRange) {
+    prAllScores = prDataCache.data.map(function(s) { return s.dims.composite; });
+    return prDataCache.data;
+  }
+
   var iv = intervalSQL();
 
   // Q1: User prompts
@@ -438,6 +446,7 @@ async function pr_loadData() {
   });
 
   prAllScores = scored.map(function(s) { return s.dims.composite; });
+  prDataCache = { range: currentTimeRange, data: scored };
   return scored;
 }
 

@@ -88,19 +88,24 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	// Read current file settings to preserve fields not sent.
 	current := config.LoadSettings(s.dataDir)
 
-	// Merge: only overwrite non-empty fields from request, unless explicitly clearing.
-	// For API key: empty string in request means "don't change"; to clear, send "__clear__".
-	settings := config.Settings{
-		LLMAPIKey:   current.LLMAPIKey,
-		LLMProvider: req.LLMProvider,
-		LLMModel:    req.LLMModel,
-		LogLevel:    req.LogLevel,
-		DataTTL:     req.DataTTL,
-	}
+	// Merge: start from persisted values, only overwrite when request provides non-empty.
+	// For API key: empty string means "don't change"; "__clear__" means remove.
+	// For LLMModel: empty string is a valid value (means "use default"), so always overwrite.
+	settings := current
 	if req.LLMAPIKey == "__clear__" {
 		settings.LLMAPIKey = ""
 	} else if req.LLMAPIKey != "" {
 		settings.LLMAPIKey = req.LLMAPIKey
+	}
+	if req.LLMProvider != "" {
+		settings.LLMProvider = req.LLMProvider
+	}
+	settings.LLMModel = req.LLMModel // empty = use default, always accept
+	if req.LogLevel != "" {
+		settings.LogLevel = req.LogLevel
+	}
+	if req.DataTTL != "" {
+		settings.DataTTL = req.DataTTL
 	}
 
 	// Save to file.
