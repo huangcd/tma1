@@ -30,6 +30,7 @@ func LoadSettings(dataDir string) Settings {
 }
 
 // SaveSettings writes settings to dataDir/settings.json atomically.
+// On Windows os.Rename fails if the destination exists, so we remove it first.
 func SaveSettings(dataDir string, s Settings) error {
 	path := filepath.Join(dataDir, "settings.json")
 	data, err := json.MarshalIndent(s, "", "  ")
@@ -40,6 +41,7 @@ func SaveSettings(dataDir string, s Settings) error {
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
+	_ = os.Remove(path) // ignore error (file may not exist on first save)
 	return os.Rename(tmp, path)
 }
 

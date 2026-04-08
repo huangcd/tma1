@@ -175,14 +175,14 @@ function pr_scoreClarity(turns, toolFailures, detection) {
   return Math.max(0, Math.min(100, score));
 }
 
-function pr_scoreCostEfficiency(sessionTokens, allTokens) {
-  if (!allTokens || allTokens.length === 0) return 50;
-  var sorted = allTokens.slice().sort(function(a, b) { return a - b; });
+// allTokensSorted must be pre-sorted ascending.
+function pr_scoreCostEfficiency(sessionTokens, allTokensSorted) {
+  if (!allTokensSorted || allTokensSorted.length === 0) return 50;
   var rank = 0;
-  for (var i = 0; i < sorted.length; i++) {
-    if (sorted[i] <= sessionTokens) rank = i;
+  for (var i = 0; i < allTokensSorted.length; i++) {
+    if (allTokensSorted[i] <= sessionTokens) rank = i;
   }
-  var relativeScore = Math.round(100 - (rank / sorted.length * 100));
+  var relativeScore = Math.round(100 - (rank / allTokensSorted.length * 100));
 
   // Absolute penalty for expensive sessions
   if (sessionTokens > 200000) relativeScore -= 20;
@@ -222,12 +222,11 @@ function pr_tierColor(tier) {
   }
 }
 
-function pr_scorePrompt(content, sess, tools, toolSeq) {
+function pr_scorePrompt(content, sess, tools, toolSeq, allTokensSorted) {
   var turns = sess ? sess.turns : 1;
   var totalTokens = sess ? (sess.totalInput + sess.totalOutput) : 0;
   var toolOk = tools ? tools.ok : 0;
   var toolFail = tools ? tools.fail : 0;
-  var allTokens = Object.values(prSessionStats).map(function(s) { return s.totalInput + s.totalOutput; });
 
   // Detect behavioral patterns once, reuse across dimensions
   var detection = pr_detectPatterns(toolSeq, totalTokens);
@@ -236,7 +235,7 @@ function pr_scorePrompt(content, sess, tools, toolSeq) {
     specificity: pr_scoreSpecificity(content),
     context: pr_scoreContext(content, detection.stats),
     clarity: pr_scoreClarity(turns, toolFail, detection),
-    costEfficiency: pr_scoreCostEfficiency(totalTokens, allTokens),
+    costEfficiency: pr_scoreCostEfficiency(totalTokens, allTokensSorted),
     toolEfficiency: pr_scoreToolEfficiency(toolOk, toolFail),
   };
   dims.composite = pr_scoreComposite(dims);
@@ -429,12 +428,17 @@ async function pr_loadData() {
     });
   }
 
+  // Precompute sorted token list once for cost efficiency ranking.
+  var allTokensSorted = Object.values(prSessionStats)
+    .map(function(s) { return s.totalInput + s.totalOutput; })
+    .sort(function(a, b) { return a - b; });
+
   // Score all prompts
   var scored = prompts.map(function(p) {
     var sess = prSessionStats[p.session_id];
     var tools = prToolStats[p.session_id];
     var toolSeq = prToolSequences[p.session_id] || null;
-    var dims = pr_scorePrompt(p.content || '', sess, tools, toolSeq);
+    var dims = pr_scorePrompt(p.content || '', sess, tools, toolSeq, allTokensSorted);
     return {
       sessionId: p.session_id,
       ts: p.ts,
@@ -546,6 +550,7 @@ function pr_renderTrend(scored) {
   });
 
   el.innerHTML = '';
+  if (chartInstances['pr-chart-trend']) chartInstances['pr-chart-trend'].destroy();
   var opts = {
     width: el.clientWidth || 500,
     height: 200,
@@ -559,7 +564,7 @@ function pr_renderTrend(scored) {
     ],
     scales: { y: { min: 0, max: 100 } },
   };
-  new uPlot(opts, [timestamps, avgs], el);
+  chartInstances['pr-chart-trend'] = new uPlot(opts, [timestamps, avgs], el);
 }
 
 function pr_renderTopSuggestions(scored) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -34,7 +35,7 @@ func (s *Server) handleSaveInsight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	insightID := fmt.Sprintf("%s-%03d", now.Format("20060102-150405"), now.UnixMilli()%1000)
+	insightID := fmt.Sprintf("%s-%03d%04d", now.Format("20060102-150405"), now.UnixMilli()%1000, rand.Intn(10000)) //nolint:gosec
 	nowMs := now.UnixMilli()
 
 	patternsJSON, _ := json.Marshal(req.Patterns)
