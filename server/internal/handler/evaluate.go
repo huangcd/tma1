@@ -41,45 +41,86 @@ type evaluateRequest struct {
 }
 
 type evaluateContext struct {
-	Turns        int      `json:"turns"`
-	ToolFailures int      `json:"tool_failures"`
-	TotalTokens  int      `json:"total_tokens"`
-	ToolsUsed    []string `json:"tools_used"`
+	Turns            int      `json:"turns"`
+	ToolFailures     int      `json:"tool_failures"`
+	TotalTokens      int      `json:"total_tokens"`
+	ToolsUsed        []string `json:"tools_used"`
+	ToolSummary      string   `json:"tool_summary"`
+	ExplorationRatio float64  `json:"exploration_ratio"`
+	Patterns         []string `json:"patterns"`
+}
+
+type pointDetail struct {
+	Score   int      `json:"score"`
+	Awarded []string `json:"awarded"`
 }
 
 type evaluateResponse struct {
-	Scores      map[string]int `json:"scores"`
-	Suggestions []string       `json:"suggestions"`
-	Rewrite     string         `json:"rewrite"`
-	Model       string         `json:"model"`
+	// V1 fields (kept for backward compat).
+	Scores map[string]int `json:"scores,omitempty"`
+
+	// V2 fields (point-based with reasoning).
+	Reasoning string                  `json:"reasoning,omitempty"`
+	Points    map[string]pointDetail  `json:"points,omitempty"`
+	Total     int                     `json:"total,omitempty"`
+
+	// Common fields.
+	Suggestions []string `json:"suggestions"`
+	Rewrite     string   `json:"rewrite"`
+	Model       string   `json:"model"`
 }
 
-const evalSystemPrompt = `You are an expert prompt engineer evaluating prompts given to AI coding assistants (like Claude Code, GitHub Copilot, Cursor). Your job is to score the prompt quality and suggest improvements.
+const evalSystemPrompt = `You are an expert prompt engineer evaluating prompts given to AI coding assistants (Claude Code, Codex, Cursor, etc.).
 
-Score each dimension from 0-100:
-- specificity: Does the prompt reference specific files, functions, error messages, or code artifacts?
-- context: Does it provide supporting information like code snippets, logs, expected behavior?
-- clarity: Is the instruction clear and actionable? Could a senior engineer understand exactly what to do?
-- overall: Weighted average considering all dimensions.
+## Evaluation Process
+1. First, briefly analyze the prompt and agent behavior
+2. Award points for each criterion met
+3. Provide specific suggestions and a rewrite
 
-Respond with ONLY valid JSON (no markdown, no explanation outside JSON):
+## Scoring Rubric (max 20 points)
+
+### Specificity (0-5)
+- Mentions specific file path(s): +2
+- Mentions function/class/variable names: +1
+- Includes error message or log output: +1
+- References line numbers or code locations: +1
+
+### Context (0-5)
+- Includes relevant code snippet: +2
+- Describes current behavior: +1
+- Describes expected/desired behavior: +1
+- Provides reproduction steps or test case: +1
+
+### Clarity (0-5)
+- Single, well-defined task (not multiple mixed requests): +2
+- Clear success criteria (how to verify it's done): +2
+- No ambiguous pronouns or vague references: +1
+
+### Efficiency (0-5)
+- Provides enough context to avoid agent exploration: +2
+- Scoped appropriately (not too broad, not too narrow): +2
+- Structured logically (context then problem then ask): +1
+
+## Output
+Respond with ONLY valid JSON:
 {
-  "scores": {"specificity": <int>, "context": <int>, "clarity": <int>, "overall": <int>},
-  "suggestions": ["<concrete suggestion 1>", "<concrete suggestion 2>"],
-  "rewrite": "<an improved version of the prompt that addresses the weaknesses>"
+  "reasoning": "<2-3 sentences analyzing prompt quality and agent behavior>",
+  "points": {
+    "specificity": {"score": <0-5>, "awarded": ["<what earned points>"]},
+    "context": {"score": <0-5>, "awarded": ["<what earned points>"]},
+    "clarity": {"score": <0-5>, "awarded": ["<what earned points>"]},
+    "efficiency": {"score": <0-5>, "awarded": ["<what earned points>"]}
+  },
+  "total": <0-20>,
+  "suggestions": ["<specific improvement 1>", "<specific improvement 2>"],
+  "rewrite": "<improved version with placeholders like [file path] for missing info>"
 }
 
-Rules for suggestions:
-- Be specific and actionable, not generic
-- Reference what's missing from THIS prompt
-- Keep each suggestion under 100 characters
-- Max 3 suggestions
-
-Rules for rewrite:
-- Keep the same intent as the original
-- Add the missing specificity/context/clarity
-- Use placeholders like [file path] or [error message] for info you don't have
-- Keep it concise — better prompts are often shorter, not longer`
+Rules:
+- awarded: list only points that WERE earned, not missing ones
+- suggestions: max 3, specific to THIS prompt, under 120 chars each
+- rewrite: same intent, better structure — often shorter, not longer
+- If agent behavior shows exploration loops or retries, factor that into your assessment`
 
 // handleEvaluate handles both the availability check and prompt evaluation.
 func (s *Server) handleEvaluate(w http.ResponseWriter, r *http.Request) {
@@ -133,8 +174,24 @@ func (s *Server) handleEvaluatePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userMsg := fmt.Sprintf("Evaluate this prompt:\n\n---\n%s\n---\n\nAdditional context: %d turns in session, %d tool failures, %d total tokens, tools used: %s",
-		req.Prompt, req.Context.Turns, req.Context.ToolFailures, req.Context.TotalTokens, strings.Join(req.Context.ToolsUsed, ", "))
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Evaluate this prompt:\n\n---\n%s\n---\n\n", req.Prompt)
+	sb.WriteString("Agent behavior after this prompt:\n")
+	fmt.Fprintf(&sb, "- Turns: %d, Tool failures: %d, Total tokens: %d\n",
+		req.Context.Turns, req.Context.ToolFailures, req.Context.TotalTokens)
+	if len(req.Context.ToolsUsed) > 0 {
+		fmt.Fprintf(&sb, "- Tools used: %s\n", strings.Join(req.Context.ToolsUsed, ", "))
+	}
+	if req.Context.ToolSummary != "" {
+		fmt.Fprintf(&sb, "- Tool sequence: %s\n", req.Context.ToolSummary)
+	}
+	if req.Context.ExplorationRatio > 0 {
+		fmt.Fprintf(&sb, "- Exploration ratio: %.0f%% of tool calls were search/read\n", req.Context.ExplorationRatio*100)
+	}
+	if len(req.Context.Patterns) > 0 {
+		fmt.Fprintf(&sb, "- Detected patterns: %s\n", strings.Join(req.Context.Patterns, ", "))
+	}
+	userMsg := sb.String()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -337,15 +394,15 @@ func (s *Server) handleEvaluateSummary(w http.ResponseWriter, r *http.Request) {
 
 	// Build user message with truncated prompts.
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Analyze this stratified sample of %d prompts (from %d total, avg heuristic score: %d):\n\n",
-		len(req.Prompts), req.TotalPrompts, req.AvgScore))
+	fmt.Fprintf(&sb, "Analyze this stratified sample of %d prompts (from %d total, avg heuristic score: %d):\n\n",
+		len(req.Prompts), req.TotalPrompts, req.AvgScore)
 	for i, p := range req.Prompts {
 		content := p.Content
 		if len(content) > 200 {
 			content = content[:200] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("--- Prompt %d (score: %d, turns: %d, tokens: %d) ---\n%s\n\n",
-			i+1, p.Score, p.Turns, p.CostTokens, content))
+		fmt.Fprintf(&sb, "--- Prompt %d (score: %d, turns: %d, tokens: %d) ---\n%s\n\n",
+			i+1, p.Score, p.Turns, p.CostTokens, content)
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)

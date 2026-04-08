@@ -10,6 +10,7 @@ var prScoreFilter = 'all'; // 'all' | 'poor' | 'fair' | 'good' | 'excellent'
 var prPromptData = []; // cached scored prompts for current page
 var prSessionStats = {}; // session_id → {turns, totalInput, totalOutput, cacheRead, model}
 var prToolStats = {};    // session_id → {ok, fail}
+var prToolSequences = {}; // session_id → [{tool, ok, inputPrefix}, ...]
 var prAllScores = [];    // all composite scores for distribution
 var prLLMAvailable = null; // null = unchecked, true/false
 var prExpandedIdx = -1;
@@ -19,41 +20,158 @@ var prExpandedIdx = -1;
 // ============================================================
 
 var PR_FILE_EXTS = /\.(go|ts|tsx|js|jsx|rs|py|java|rb|cpp|c|h|css|html|sql|yaml|yml|json|toml|md|sh|bash|zsh|proto|graphql)\b/i;
-var PR_PATH_PATTERN = /(?:^|\s|['"`])[.~]?\/[\w\-./]+/;
-var PR_IDENT_PATTERN = /\b[a-z][a-zA-Z0-9]{3,}\b|\b[A-Z][a-zA-Z0-9]{3,}\b|\b[a-z]+_[a-z_]{2,}\b/;
+var PR_PATH_PATTERN = /(?:^|\s|['"`])[.~]?\/[\w\-./]+/g;
+var PR_PATH_PATTERN_TEST = /(?:^|\s|['"`])[.~]?\/[\w\-./]+/;
+var PR_IDENT_PATTERN = /\b[a-z][a-zA-Z0-9]{3,}\b|\b[A-Z][a-zA-Z0-9]{3,}\b|\b[a-z]+_[a-z_]{2,}\b/g;
 var PR_ERROR_KEYWORDS = /\b(error|failed|failure|panic|exception|traceback|stacktrace|crash|segfault|ENOENT|EPERM|EACCES|404|500|502|503)\b/i;
-var PR_BACKTICK = /`[^`]{2,}`/;
+var PR_BACKTICK = /`[^`]{2,}`/g;
 var PR_LINE_REF = /\b(?:line\s*\d+|L\d+|:\d{2,})\b/i;
-var PR_CODE_BLOCK = /```[\s\S]*?```/;
+var PR_CODE_BLOCK = /```[\s\S]*?```/g;
 var PR_STACK_TRACE = /^\s+at\s+/m;
 var PR_TRACEBACK = /Traceback|File ".*", line \d+/;
 var PR_BEHAVIOR_KEYWORDS = /\b(expected|actual|should|want|instead|currently|but\s+(?:it|the|I|we)|rather|supposed\s+to)\b/i;
+var PR_BEHAVIOR_KEYWORDS_G = /\b(expected|actual|should|want|instead|currently|but\s+(?:it|the|I|we)|rather|supposed\s+to)\b/gi;
+var PR_QUOTED_STRINGS = /"[^"]{15,}"|'[^']{15,}'/g;
+
+var PR_EXPLORATION_TOOLS = ['Read', 'Grep', 'Glob', 'Search', 'Agent'];
+var PR_EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit'];
+var PR_FILE_PATH_IN_JSON = /"file_path"\s*:\s*"([^"]+)"/;
 
 var PR_VERBS = ['fix', 'add', 'implement', 'refactor', 'debug', 'explain', 'update', 'remove', 'test', 'review', 'create', 'change', 'move', 'rename', 'optimize', 'migrate', 'upgrade', 'setup', 'configure', 'deploy', 'write', 'build', 'run', 'check', 'find', 'search', 'read', 'show', 'list', 'help'];
 
+// --- Behavior Pattern Detection (Layer 3) ---
+
+function pr_detectPatterns(toolSeq, sessionTokens) {
+  if (!toolSeq || toolSeq.length === 0) return { patterns: [], stats: {} };
+
+  var patterns = [];
+
+  // 1. Exploration loop: >=4 consecutive exploration tool calls
+  var maxExplRun = 0, explRun = 0;
+  toolSeq.forEach(function(t) {
+    if (PR_EXPLORATION_TOOLS.indexOf(t.tool) !== -1) explRun++;
+    else { maxExplRun = Math.max(maxExplRun, explRun); explRun = 0; }
+  });
+  maxExplRun = Math.max(maxExplRun, explRun);
+  if (maxExplRun >= 4) patterns.push({ type: 'exploration_loop', count: maxExplRun });
+
+  // 2. Edit retry: same file edited >2 times
+  var editFiles = {};
+  toolSeq.forEach(function(t) {
+    if (PR_EDIT_TOOLS.indexOf(t.tool) !== -1 && t.inputPrefix) {
+      var m = t.inputPrefix.match(PR_FILE_PATH_IN_JSON);
+      var path = m ? m[1] : null;
+      if (path) editFiles[path] = (editFiles[path] || 0) + 1;
+    }
+  });
+  var editVals = Object.values(editFiles);
+  var maxEdits = editVals.length > 0 ? Math.max.apply(null, editVals) : 0;
+  if (maxEdits > 2) patterns.push({ type: 'edit_retry', count: maxEdits });
+
+  // 3. Consecutive failures: >=3 in a row
+  var maxFailRun = 0, failRun = 0;
+  toolSeq.forEach(function(t) {
+    if (!t.ok) failRun++;
+    else { maxFailRun = Math.max(maxFailRun, failRun); failRun = 0; }
+  });
+  maxFailRun = Math.max(maxFailRun, failRun);
+  if (maxFailRun >= 3) patterns.push({ type: 'consecutive_failures', count: maxFailRun });
+
+  // 4. High absolute cost
+  if (sessionTokens > 100000) patterns.push({ type: 'high_cost', tokens: sessionTokens });
+
+  // Stats for dimension scoring
+  var explCount = toolSeq.filter(function(t) { return PR_EXPLORATION_TOOLS.indexOf(t.tool) !== -1; }).length;
+  return {
+    patterns: patterns,
+    stats: {
+      explorationRatio: toolSeq.length > 0 ? explCount / toolSeq.length : 0,
+      maxExplRun: maxExplRun,
+      maxEdits: maxEdits,
+      maxFailRun: maxFailRun,
+    },
+  };
+}
+
+// --- Dimension Scoring (refined, count-based) ---
+
 function pr_scoreSpecificity(content) {
   var score = 0;
-  if (PR_PATH_PATTERN.test(content) || PR_FILE_EXTS.test(content)) score += 25;
-  if (PR_IDENT_PATTERN.test(content)) score += 20;
-  if (PR_ERROR_KEYWORDS.test(content)) score += 20;
+  // File paths: count matches
+  var paths = (content.match(PR_PATH_PATTERN) || []);
+  if (PR_FILE_EXTS.test(content)) paths.push('ext'); // add 1 for file extension mention
+  if (paths.length >= 3) score += 25;
+  else if (paths.length >= 1) score += 15;
+
+  // Identifiers: count unique
+  var idents = content.match(PR_IDENT_PATTERN) || [];
+  var uniqueIdents = new Set(idents).size;
+  if (uniqueIdents >= 3) score += 20;
+  else if (uniqueIdents >= 1) score += 10;
+
+  // Error/log info
+  if (PR_ERROR_KEYWORDS.test(content)) score += 10;
+  if ((content.match(PR_QUOTED_STRINGS) || []).length > 0) score += 10;
+
+  // Line references
   if (PR_LINE_REF.test(content)) score += 15;
-  if (PR_BACKTICK.test(content)) score += 20;
+
+  // Backtick code spans: count
+  var ticks = (content.match(PR_BACKTICK) || []).length;
+  if (ticks >= 3) score += 20;
+  else if (ticks >= 1) score += 10;
+
   return Math.min(score, 100);
 }
 
-function pr_scoreContext(content) {
+function pr_scoreContext(content, behaviorStats) {
   var score = 0;
-  if (PR_CODE_BLOCK.test(content)) score += 30;
-  if (PR_STACK_TRACE.test(content) || PR_TRACEBACK.test(content)) score += 20;
-  if (PR_BEHAVIOR_KEYWORDS.test(content)) score += 20;
-  if (content.length > 200) score += 15;
-  if (content.length > 500) score += 15;
-  return Math.min(score, 100);
+  // Code blocks: count and size
+  var blocks = content.match(PR_CODE_BLOCK) || [];
+  if (blocks.length > 0) {
+    var codeLen = blocks.reduce(function(a, b) { return a + b.length; }, 0);
+    score += codeLen > 200 ? 30 : 20;
+  }
+
+  // Stack trace / error log
+  if (PR_STACK_TRACE.test(content) || PR_TRACEBACK.test(content)) score += 15;
+
+  // Behavioral spec: count keyword hits
+  var behaviorHits = (content.match(PR_BEHAVIOR_KEYWORDS_G) || []).length;
+  score += Math.min(behaviorHits * 7, 20);
+
+  // Length: smoother curve
+  if (content.length > 100) score += 5;
+  if (content.length > 250) score += 5;
+  if (content.length > 500) score += 5;
+  if (content.length > 1000) score += 5;
+  if (content.length > 3000) score -= 10; // likely pasted whole file
+
+  // Behavior signal: high exploration ratio = insufficient context provided
+  if (behaviorStats && behaviorStats.explorationRatio > 0.6) score -= 15;
+  else if (behaviorStats && behaviorStats.explorationRatio > 0.4) score -= 8;
+
+  return Math.max(0, Math.min(score, 100));
 }
 
-function pr_scoreClarity(turns, toolFailures) {
-  var score = Math.max(20, 100 - (turns - 1) * 20);
-  score -= (toolFailures || 0) * 5;
+function pr_scoreClarity(turns, toolFailures, detection) {
+  var score;
+  if (turns <= 1) score = 100;
+  else if (turns <= 2) score = 85;
+  else if (turns <= 3) score = 70;
+  else if (turns <= 5) score = 50;
+  else score = Math.max(15, 60 - turns * 6);
+
+  score -= Math.min((toolFailures || 0) * 4, 20);
+
+  // Behavior pattern penalties
+  if (detection && detection.patterns) {
+    detection.patterns.forEach(function(p) {
+      if (p.type === 'exploration_loop') score -= 10;
+      if (p.type === 'edit_retry') score -= 8;
+    });
+  }
+
   return Math.max(0, Math.min(100, score));
 }
 
@@ -64,8 +182,13 @@ function pr_scoreCostEfficiency(sessionTokens, allTokens) {
   for (var i = 0; i < sorted.length; i++) {
     if (sorted[i] <= sessionTokens) rank = i;
   }
-  var pct = rank / sorted.length * 100;
-  return Math.round(100 - pct);
+  var relativeScore = Math.round(100 - (rank / sorted.length * 100));
+
+  // Absolute penalty for expensive sessions
+  if (sessionTokens > 200000) relativeScore -= 20;
+  else if (sessionTokens > 100000) relativeScore -= 10;
+
+  return Math.max(0, relativeScore);
 }
 
 function pr_scoreToolEfficiency(ok, fail) {
@@ -99,21 +222,26 @@ function pr_tierColor(tier) {
   }
 }
 
-function pr_scorePrompt(content, sess, tools) {
+function pr_scorePrompt(content, sess, tools, toolSeq) {
   var turns = sess ? sess.turns : 1;
   var totalTokens = sess ? (sess.totalInput + sess.totalOutput) : 0;
   var toolOk = tools ? tools.ok : 0;
   var toolFail = tools ? tools.fail : 0;
   var allTokens = Object.values(prSessionStats).map(function(s) { return s.totalInput + s.totalOutput; });
 
+  // Detect behavioral patterns once, reuse across dimensions
+  var detection = pr_detectPatterns(toolSeq, totalTokens);
+
   var dims = {
     specificity: pr_scoreSpecificity(content),
-    context: pr_scoreContext(content),
-    clarity: pr_scoreClarity(turns, toolFail),
+    context: pr_scoreContext(content, detection.stats),
+    clarity: pr_scoreClarity(turns, toolFail, detection),
     costEfficiency: pr_scoreCostEfficiency(totalTokens, allTokens),
     toolEfficiency: pr_scoreToolEfficiency(toolOk, toolFail),
   };
   dims.composite = pr_scoreComposite(dims);
+  dims._patterns = detection.patterns; // attached for suggestion generation
+  dims._stats = detection.stats;
   return dims;
 }
 
@@ -128,13 +256,32 @@ function pr_getSuggestions(content, dims, sess, tools) {
   var cacheRead = sess ? sess.cacheRead : 0;
   var totalInput = sess ? sess.totalInput : 0;
 
-  if (dims.specificity < 40 && !PR_PATH_PATTERN.test(content) && !PR_FILE_EXTS.test(content)) {
+  // Behavior pattern suggestions (highest signal)
+  if (dims._patterns) {
+    dims._patterns.forEach(function(p) {
+      if (p.type === 'exploration_loop') {
+        suggestions.push(t('pr.sug.exploration_loop').replace('{N}', p.count));
+      } else if (p.type === 'edit_retry') {
+        suggestions.push(t('pr.sug.edit_retry').replace('{N}', p.count));
+      } else if (p.type === 'consecutive_failures') {
+        suggestions.push(t('pr.sug.consec_fail').replace('{N}', p.count));
+      } else if (p.type === 'high_cost') {
+        suggestions.push(t('pr.sug.high_cost').replace('{N}', Math.round(p.tokens / 1000)));
+      }
+    });
+  }
+
+  // Content-based suggestions
+  if (dims.specificity < 40 && !PR_PATH_PATTERN_TEST.test(content) && !PR_FILE_EXTS.test(content)) {
     suggestions.push(t('pr.sug.no_paths'));
   }
   if (content.length < 50 && dims.specificity < 30) {
     suggestions.push(t('pr.sug.vague'));
   }
-  if (dims.clarity < 40) {
+  if (content.length > 3000) {
+    suggestions.push(t('pr.sug.too_long').replace('{N}', content.length));
+  }
+  if (dims.clarity < 40 && !(dims._patterns && dims._patterns.some(function(p) { return p.type === 'exploration_loop'; }))) {
     suggestions.push(t('pr.sug.high_turns').replace('{N}', turns));
   }
   if (dims.context < 30) {
@@ -149,7 +296,7 @@ function pr_getSuggestions(content, dims, sess, tools) {
   if (totalInput > 0 && cacheRead / totalInput < 0.1) {
     suggestions.push(t('pr.sug.cache_low'));
   }
-  return suggestions.slice(0, 4); // max 4
+  return suggestions.slice(0, 5); // max 5 (raised from 4)
 }
 
 // ============================================================
@@ -198,7 +345,7 @@ async function pr_loadData() {
   var sids = Object.keys(sidSet);
   var sidList = sids.map(function(s) { return "'" + escapeSQLString(s) + "'"; }).join(',');
 
-  // Q2 + Q3 in parallel
+  // Q2 + Q3 + Q4 in parallel
   var results = await Promise.all([
     query(
       "SELECT session_id, " +
@@ -214,6 +361,15 @@ async function pr_loadData() {
       "SUM(CASE WHEN event_type = 'PostToolUse' THEN 1 ELSE 0 END) AS tool_ok, " +
       "SUM(CASE WHEN event_type IN ('PostToolUseFailure','ToolError') THEN 1 ELSE 0 END) AS tool_fail " +
       "FROM tma1_hook_events WHERE session_id IN (" + sidList + ") GROUP BY session_id"
+    ).catch(function() { return null; }),
+    // Q4: Tool call sequence for behavioral pattern detection.
+    // Include PreToolUse (Codex stores tool_name/input there). Pair via tool_use_id.
+    query(
+      "SELECT session_id, tool_name, event_type, tool_use_id, " +
+      "LEFT(tool_input, 200) AS tool_input_prefix " +
+      "FROM tma1_hook_events WHERE session_id IN (" + sidList + ") " +
+      "AND event_type IN ('PreToolUse','PostToolUse','PostToolUseFailure') " +
+      "ORDER BY session_id, ts LIMIT 8000"
     ).catch(function() { return null; }),
   ]);
 
@@ -239,11 +395,36 @@ async function pr_loadData() {
     });
   }
 
+  // Build tool sequence map for behavioral analysis.
+  // Pair PreToolUse with PostToolUse/Failure by tool_use_id (handles interleaved/concurrent calls).
+  prToolSequences = {};
+  if (results[2]) {
+    var pendingPre = {}; // tool_use_id → {tool, inputPrefix}
+    rowsToObjects(results[2]).forEach(function(r) {
+      var sid = r.session_id;
+      var tuid = r.tool_use_id || '';
+      if (r.event_type === 'PreToolUse') {
+        if (tuid) pendingPre[tuid] = { tool: r.tool_name || '', inputPrefix: r.tool_input_prefix || '' };
+      } else {
+        // PostToolUse or PostToolUseFailure — pair with Pre by tool_use_id.
+        if (!prToolSequences[sid]) prToolSequences[sid] = [];
+        var pre = tuid ? pendingPre[tuid] : null;
+        prToolSequences[sid].push({
+          tool: r.tool_name || (pre ? pre.tool : '') || '',
+          ok: r.event_type === 'PostToolUse',
+          inputPrefix: r.tool_input_prefix || (pre ? pre.inputPrefix : '') || '',
+        });
+        if (tuid) delete pendingPre[tuid];
+      }
+    });
+  }
+
   // Score all prompts
   var scored = prompts.map(function(p) {
     var sess = prSessionStats[p.session_id];
     var tools = prToolStats[p.session_id];
-    var dims = pr_scorePrompt(p.content || '', sess, tools);
+    var toolSeq = prToolSequences[p.session_id] || null;
+    var dims = pr_scorePrompt(p.content || '', sess, tools, toolSeq);
     return {
       sessionId: p.session_id,
       ts: p.ts,
@@ -252,6 +433,7 @@ async function pr_loadData() {
       dims: dims,
       sess: sess,
       tools: tools,
+      toolSeq: toolSeq,
     };
   });
 
@@ -714,7 +896,10 @@ async function pr_evaluate(idx) {
           turns: p.sess ? p.sess.turns : 1,
           tool_failures: p.tools ? p.tools.fail : 0,
           total_tokens: p.sess ? (p.sess.totalInput + p.sess.totalOutput) : 0,
-          tools_used: [],
+          tools_used: p.toolSeq ? pr_summarizeTools(p.toolSeq) : [],
+          tool_summary: p.toolSeq ? pr_toolSequenceSummary(p.toolSeq) : '',
+          exploration_ratio: p.dims._stats ? p.dims._stats.explorationRatio : 0,
+          patterns: p.dims._patterns ? p.dims._patterns.map(function(p) { return p.type; }) : [],
         },
       }),
     });
@@ -735,11 +920,37 @@ function pr_renderLLMResult(el, data) {
   var html = '<div class="pr-llm-result">';
   html += '<div class="pr-llm-header">LLM Evaluation \u00b7 ' + escapeHTML(data.model || '') + '</div>';
 
-  // Scores
-  if (data.scores) {
+  // V2: point-based with reasoning
+  if (data.points) {
+    if (data.reasoning) {
+      html += '<div class="pr-ai-summary" style="margin-bottom:10px;font-style:italic">' + escapeHTML(data.reasoning) + '</div>';
+    }
+    html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text)">' +
+      escapeHTML(data.total + '/20') + '</div>';
+    Object.entries(data.points).forEach(function(entry) {
+      var dim = entry[0], detail = entry[1];
+      var pct = detail.score / 5 * 100;
+      var tier = pr_scoreTier(pct);
+      var color = pr_tierColor(tier);
+      html += '<div class="pr-dim-card" style="margin-bottom:6px">' +
+        '<div class="pr-dim-card-head">' +
+          '<span class="pr-dim-card-label">' + escapeHTML(dim) + '</span>' +
+          '<span class="pr-dim-card-val" style="color:' + color + '">' + detail.score + '/5</span>' +
+        '</div>';
+      if (detail.awarded && detail.awarded.length > 0) {
+        html += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">';
+        detail.awarded.forEach(function(a) {
+          html += '<span style="display:inline-block;margin-right:8px">\u2713 ' + escapeHTML(a) + '</span>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+  }
+  // V1 fallback: raw 0-100 scores
+  else if (data.scores) {
     html += '<div class="pr-dims" style="margin-bottom:8px">';
-    var scoreEntries = Object.entries(data.scores);
-    scoreEntries.forEach(function(entry) {
+    Object.entries(data.scores).forEach(function(entry) {
       var val = entry[1];
       var tier = pr_scoreTier(val);
       var color = pr_tierColor(tier);
@@ -771,6 +982,25 @@ function pr_renderLLMResult(el, data) {
 
   html += '</div>';
   el.innerHTML = html;
+}
+
+// Helper: summarize tool names from sequence
+function pr_summarizeTools(toolSeq) {
+  var names = {};
+  toolSeq.forEach(function(t) { names[t.tool] = true; });
+  return Object.keys(names);
+}
+
+// Helper: compact tool sequence summary like "Read(5) → Grep(3) → Edit(1)"
+function pr_toolSequenceSummary(toolSeq) {
+  if (!toolSeq || toolSeq.length === 0) return '';
+  var runs = [], last = '', count = 0;
+  toolSeq.forEach(function(t) {
+    if (t.tool === last) { count++; }
+    else { if (last) runs.push(last + '(' + count + ')'); last = t.tool; count = 1; }
+  });
+  if (last) runs.push(last + '(' + count + ')');
+  return runs.join(' \u2192 ');
 }
 
 // ============================================================

@@ -4,10 +4,14 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/tma1-ai/tma1/server/internal/config"
 )
+
+// validTTL matches GreptimeDB TTL values — same pattern as greptimedb.validTTL.
+var validTTL = regexp.MustCompile(`^\d+[smhdwMy]$`)
 
 type settingsResponse struct {
 	LLMAPIKeySet  bool     `json:"llm_api_key_set"`
@@ -72,6 +76,12 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true, "": true}
 	if !validLevels[strings.ToLower(req.LogLevel)] {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "log_level must be debug, info, warn, or error"})
+		return
+	}
+
+	// Validate data TTL format — same rules as greptimedb.SetDatabaseTTL.
+	if req.DataTTL != "" && req.DataTTL != "forever" && !validTTL.MatchString(req.DataTTL) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "data_ttl must be <number><unit> (s/m/h/d/w/M/y) or 'forever'"})
 		return
 	}
 
