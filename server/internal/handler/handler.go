@@ -26,6 +26,7 @@ type Server struct {
 	webFS             http.FileSystem
 	httpClient        *http.Client
 	otlpClient        *http.Client
+	llmClient         *http.Client
 	transcriptWatcher *transcript.Watcher
 	hookBroadcast     *HookBroadcaster
 	llmConfig         LLMConfig
@@ -54,6 +55,7 @@ func New(greptimeHTTPPort int, tma1Port string, webFS http.FileSystem, logger *s
 		webFS:             webFS,
 		httpClient:        &http.Client{Timeout: 30 * time.Second},
 		otlpClient:        &http.Client{Timeout: 60 * time.Second},
+		llmClient:         &http.Client{Timeout: 90 * time.Second},
 		transcriptWatcher: tw,
 		hookBroadcast:     bc,
 		llmConfig:         llm,
@@ -91,6 +93,11 @@ func (s *Server) Router() http.Handler {
 	// Settings (read/write server-side configuration) — origin-checked.
 	r.Get("/api/settings", s.handleGetSettings)
 	r.Post("/api/settings", s.requireLocalOrigin(s.handleSaveSettings))
+
+	// Prompt insights history (persist AI analysis results).
+	r.Post("/api/insights", s.requireLocalOrigin(s.handleSaveInsight))
+	r.Get("/api/insights", s.handleListInsights)
+	r.Get("/api/insights/{id}", s.handleGetInsight)
 
 	// OTLP proxy — agents send OTel data here; tma1-server injects
 	// the x-greptime-pipeline-name header for trace requests.
@@ -259,17 +266,27 @@ func (s *Server) proxyOTLP(w http.ResponseWriter, r *http.Request, subPath strin
 
 // requireLocalOrigin rejects browser requests from foreign origins (CSRF protection).
 // Non-browser clients (curl, agents) typically omit Origin and are allowed through.
+// Allows localhost variants plus the origin matching the request's own Host header
+// (covers LAN IP / reverse proxy access where the dashboard is served from the same host).
 func (s *Server) requireLocalOrigin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
 			allowed := map[string]bool{
 				"http://localhost:" + s.tma1Port:  true,
+				"https://localhost:" + s.tma1Port: true,
 				"http://127.0.0.1:" + s.tma1Port:  true,
+				"https://127.0.0.1:" + s.tma1Port: true,
 				"http://[::1]:" + s.tma1Port:      true,
+				"https://[::1]:" + s.tma1Port:     true,
+			}
+			// Also allow the origin matching the request's Host (LAN IP / reverse proxy).
+			if host := r.Host; host != "" {
+				allowed["http://"+host] = true
+				allowed["https://"+host] = true
 			}
 			if !allowed[origin] {
-				writeJSON(w, http.StatusForbidden, map[string]string{"error": "request blocked: origin " + origin + " not allowed"})
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "request blocked: origin not allowed"})
 				return
 			}
 		}

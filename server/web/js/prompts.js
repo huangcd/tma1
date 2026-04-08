@@ -305,9 +305,11 @@ function pr_getSuggestions(content, dims, sess, tools) {
 
 var prTotalPrompts = 0; // full count from DB (may exceed analyzed)
 var prDataCache = null; // { range: string, data: scored[] }
+var prDataGeneration = 0; // incremented on each pr_loadData(), used as AI insights cache key
 
 async function pr_loadCards() {
   prDataCache = null; // invalidate on every cards reload (refresh / time range change)
+  prPromptData = [];  // force pr_loadData() re-fetch (don't let AI Insights use stale data)
   var iv = intervalSQL();
   try {
     var res = await query(
@@ -447,6 +449,7 @@ async function pr_loadData() {
 
   prAllScores = scored.map(function(s) { return s.dims.composite; });
   prDataCache = { range: currentTimeRange, data: scored };
+  prDataGeneration++;
   return scored;
 }
 
@@ -683,9 +686,9 @@ function pr_renderPromptCards(pageData, startIdx) {
     html += '<div class="pr-card-meta">';
     html += '<span>' + escapeHTML(relTime) + '</span>';
     html += '<span class="pr-sep">\u00b7</span>';
-    html += '<span>' + escapeHTML(p.model || 'unknown') + '</span>';
+    html += '<span>' + escapeHTML(p.model || t('pr.unknown_model')) + '</span>';
     html += '<span class="pr-sep">\u00b7</span>';
-    html += '<span>' + turns + ' ' + (turns === 1 ? 'turn' : 'turns') + '</span>';
+    html += '<span>' + turns + ' ' + (turns === 1 ? t('pr.turn') : t('pr.turns')) + '</span>';
     html += '<span class="pr-sep">\u00b7</span>';
     html += '<span>' + fmtCost(cost) + '</span>';
     html += '</div></div>';
@@ -914,7 +917,7 @@ async function pr_evaluate(idx) {
     });
     var data = await resp.json();
     if (data.error) {
-      resultEl.innerHTML = '<div class="pr-llm-result" style="border-color:var(--red)"><div class="pr-llm-header" style="color:var(--red)">Error</div><div style="font-size:13px;color:var(--text-muted)">' + escapeHTML(data.error) + '</div></div>';
+      resultEl.innerHTML = '<div class="pr-llm-result" style="border-color:var(--red)"><div class="pr-llm-header" style="color:var(--red)">' + t('pr.llm_error_title') + '</div><div style="font-size:13px;color:var(--text-muted)">' + escapeHTML(data.error) + '</div></div>';
       return;
     }
     pr_renderLLMResult(resultEl, data);
@@ -927,7 +930,7 @@ async function pr_evaluate(idx) {
 
 function pr_renderLLMResult(el, data) {
   var html = '<div class="pr-llm-result">';
-  html += '<div class="pr-llm-header">LLM Evaluation \u00b7 ' + escapeHTML(data.model || '') + '</div>';
+  html += '<div class="pr-llm-header">' + t('pr.llm_evaluation') + ' \u00b7 ' + escapeHTML(data.model || '') + '</div>';
 
   // V2: point-based with reasoning
   if (data.points) {
@@ -1049,7 +1052,7 @@ function pr_samplePrompts(scored) {
 }
 
 async function pr_loadAIInsights() {
-  var key = currentTimeRange + ':' + prAllScores.length;
+  var key = prDataGeneration + ':' + (currentLocale || 'en');
   if (prAIInsightsCache[key]) {
     pr_renderAIInsights(prAIInsightsCache[key]);
     return;
@@ -1072,8 +1075,11 @@ async function pr_loadAIInsights() {
     return;
   }
 
-  var avgScore = prAllScores.length > 0
-    ? Math.round(prAllScores.reduce(function(a, b) { return a + b; }, 0) / prAllScores.length) : 0;
+  // Snapshot stats before async LLM call (globals may change while awaiting).
+  var snapshotTotal = prAllScores.length;
+  var snapshotRange = currentTimeRange;
+  var avgScore = snapshotTotal > 0
+    ? Math.round(prAllScores.reduce(function(a, b) { return a + b; }, 0) / snapshotTotal) : 0;
 
   var payload = {
     prompts: sample.map(function(s) {
@@ -1086,6 +1092,7 @@ async function pr_loadAIInsights() {
     }),
     total_prompts: prAllScores.length,
     avg_score: avgScore,
+    lang: currentLocale || 'en',
   };
 
   try {
@@ -1100,9 +1107,13 @@ async function pr_loadAIInsights() {
       return;
     }
     data._sampleSize = sample.length;
-    data._totalSize = prAllScores.length;
+    data._totalSize = snapshotTotal;
+    data._avgScore = avgScore;
+    data._timeRange = snapshotRange;
+    data._sample = sample; // keep for rendering example prompts
     prAIInsightsCache[key] = data;
     pr_renderAIInsights(data);
+    pr_saveInsight(data); // persist to DB (best-effort)
   } catch (e) {
     el.innerHTML = '<div style="color:var(--red);font-size:13px">' + t('pr.ai_error') + '</div>';
   } finally {
@@ -1112,6 +1123,7 @@ async function pr_loadAIInsights() {
 
 function pr_renderAIInsights(data) {
   var el = document.getElementById('pr-ai-insights');
+  var sample = data._sample || [];
   var html = '';
 
   // Summary
@@ -1119,14 +1131,35 @@ function pr_renderAIInsights(data) {
     html += '<div class="pr-ai-summary">' + escapeHTML(data.summary) + '</div>';
   }
 
-  // Patterns
+  // Patterns with expanded explanation + example prompts
   if (data.patterns && data.patterns.length > 0) {
     data.patterns.forEach(function(p) {
       var freqClass = p.frequency === 'high' ? 'high' : (p.frequency === 'medium' ? 'medium' : 'low');
       html += '<div class="pr-ai-pattern">';
       html += '<div class="pr-ai-pattern-issue">' + escapeHTML(p.issue) +
         ' <span class="pr-ai-pattern-freq ' + freqClass + '">' + escapeHTML(p.frequency) + '</span></div>';
-      html += '<div style="font-size:12px;color:var(--text-muted)">' + escapeHTML(p.suggestion) + '</div>';
+      html += '<div style="font-size:13px;color:var(--text);margin:6px 0">' + escapeHTML(p.suggestion) + '</div>';
+
+      // Expanded explanation
+      if (p.explanation) {
+        html += '<div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:6px">' + escapeHTML(p.explanation) + '</div>';
+      }
+
+      // Example prompts from sample
+      if (p.examples && p.examples.length > 0 && sample.length > 0) {
+        html += '<div class="pr-ai-examples">';
+        p.examples.forEach(function(idx) {
+          var s = sample[idx - 1]; // 1-based index
+          if (s) {
+            var preview = s.content.length > 120 ? s.content.slice(0, 120) + '...' : s.content;
+            html += '<div class="pr-ai-example">' +
+              '<span class="pr-ai-example-score ' + pr_scoreTier(s.dims.composite) + '">' + s.dims.composite + '</span> ' +
+              escapeHTML(preview) + '</div>';
+          }
+        });
+        html += '</div>';
+      }
+
       html += '</div>';
     });
   }
@@ -1146,6 +1179,129 @@ function pr_renderAIInsights(data) {
     '</div>';
 
   el.innerHTML = html;
+}
+
+// ============================================================
+// Insight Persistence & History
+// ============================================================
+
+var prHistoryOpen = false;
+var prActiveInsightId = null;
+
+async function pr_saveInsight(data) {
+  try {
+    var sampleForSave = (data._sample || []).map(function(s) {
+      return { content: (s.content || '').slice(0, 200), score: s.dims ? s.dims.composite : 0 };
+    });
+    await fetch('/api/insights', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        summary: data.summary || '',
+        patterns: data.patterns || [],
+        top_tip: data.top_tip || '',
+        model: data.model || '',
+        sample_size: data._sampleSize || 0,
+        total_prompts: data._totalSize || 0,
+        avg_score: data._avgScore || 0,
+        sample_prompts: sampleForSave,
+        time_range: data._timeRange || currentTimeRange,
+      }),
+    });
+  } catch (e) { /* silent — save is best-effort */ }
+}
+
+async function pr_toggleHistory() {
+  var panel = document.getElementById('pr-ai-history-panel');
+  prHistoryOpen = !prHistoryOpen;
+  if (!prHistoryOpen) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  panel.innerHTML = '<div class="loading">' + t('pr.ai_history_loading') + '</div>';
+  try {
+    var resp = await fetch('/api/insights?limit=10');
+    var gdbResp = await resp.json();
+    var recs = (gdbResp.output && gdbResp.output[0] && gdbResp.output[0].records) || {};
+    var colNames = (recs.schema && recs.schema.column_schemas || []).map(function(c) { return c.name; });
+    var rowData = (recs.rows || []).map(function(row) {
+      var obj = {};
+      colNames.forEach(function(c, i) { obj[c] = row[i]; });
+      return obj;
+    });
+    pr_renderHistoryPanel(rowData);
+  } catch (e) {
+    panel.innerHTML = '<div style="color:var(--red);font-size:12px">' + t('pr.ai_error') + '</div>';
+  }
+}
+
+function pr_renderHistoryPanel(items) {
+  var panel = document.getElementById('pr-ai-history-panel');
+  if (!items || items.length === 0) {
+    panel.innerHTML = '<div class="chart-empty" style="height:auto;padding:16px">' + t('pr.ai_no_history') + '</div>';
+    return;
+  }
+
+  var html = '<div class="pr-ai-history-panel">';
+  items.forEach(function(item) {
+    var id = item.insight_id || '';
+    var score = Number(item.avg_score) || 0;
+    var tier = pr_scoreTier(score);
+    var sampleSize = Number(item.sample_size) || 0;
+    var total = Number(item.total_prompts) || 0;
+    var range = item.time_range || '';
+    var summary = (item.summary || '').slice(0, 80);
+    var ts = item.ts ? new Date(tsToMs(item.ts)).toLocaleString() : '';
+    var active = id === prActiveInsightId ? ' active' : '';
+
+    html += '<div class="pr-ai-history-card' + active + '" data-insight-id="' + escapeHTML(id) + '" onclick="pr_loadHistoryDetail(\'' + escapeJSString(id) + '\')">';
+    html += '<div class="pr-ai-history-date">' + escapeHTML(ts) + '</div>';
+    html += '<div class="pr-ai-history-meta">';
+    html += '<span class="pr-score-dot-sm ' + tier + '">' + score + '</span>';
+    html += '<span>\u00b7</span>';
+    html += '<span>' + sampleSize + ' / ' + total + ' ' + t('pr.ai_prompts_label') + '</span>';
+    if (range) html += '<span>\u00b7</span><span>' + escapeHTML(range) + '</span>';
+    html += '</div>';
+    if (summary) html += '<div class="pr-ai-history-summary">' + escapeHTML(summary) + (item.summary && item.summary.length > 80 ? '...' : '') + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
+async function pr_loadHistoryDetail(insightId) {
+  var el = document.getElementById('pr-ai-insights');
+  el.innerHTML = '<div class="loading">' + t('pr.ai_history_loading') + '</div>';
+  try {
+    var resp = await fetch('/api/insights/' + encodeURIComponent(insightId));
+    var gdbResp = await resp.json();
+    var recs = (gdbResp.output && gdbResp.output[0] && gdbResp.output[0].records) || {};
+    var colNames = (recs.schema && recs.schema.column_schemas || []).map(function(c) { return c.name; });
+    var row = (recs.rows || [])[0];
+    if (!row) { el.innerHTML = '<div class="chart-empty">' + t('pr.ai_error') + '</div>'; return; }
+
+    var obj = {};
+    colNames.forEach(function(c, i) { obj[c] = row[i]; });
+
+    // Parse JSON string fields
+    var data = {
+      summary: obj.summary || '',
+      patterns: JSON.parse(obj.patterns || '[]'),
+      top_tip: obj.top_tip || '',
+      model: obj.model || '',
+      _sampleSize: Number(obj.sample_size) || 0,
+      _totalSize: Number(obj.total_prompts) || 0,
+      _sample: JSON.parse(obj.sample_prompts || '[]').map(function(s) {
+        return { content: s.content || '', dims: { composite: s.score || 0 } };
+      }),
+    };
+    prActiveInsightId = insightId;
+    pr_renderAIInsights(data);
+    // Update history card highlights
+    document.querySelectorAll('.pr-ai-history-card').forEach(function(card) {
+      card.classList.toggle('active', card.dataset.insightId === insightId);
+    });
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--red);font-size:12px">' + escapeHTML(e.message) + '</div>';
+  }
 }
 
 // ============================================================

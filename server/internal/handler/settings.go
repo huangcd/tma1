@@ -88,23 +88,26 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	// Read current file settings to preserve fields not sent.
 	current := config.LoadSettings(s.dataDir)
 
-	// Merge: start from persisted values, only overwrite when request provides non-empty.
-	// For API key: empty string means "don't change"; "__clear__" means remove.
-	// For LLMModel: empty string is a valid value (means "use default"), so always overwrite.
+	// Merge: start from persisted values, only overwrite non-locked, non-empty fields.
+	// Env-locked fields are silently ignored (runtime value comes from env, not file).
 	settings := current
-	if req.LLMAPIKey == "__clear__" {
-		settings.LLMAPIKey = ""
-	} else if req.LLMAPIKey != "" {
-		settings.LLMAPIKey = req.LLMAPIKey
+	if !s.isEnvLocked("llm_api_key") {
+		if req.LLMAPIKey == "__clear__" {
+			settings.LLMAPIKey = ""
+		} else if req.LLMAPIKey != "" {
+			settings.LLMAPIKey = req.LLMAPIKey
+		}
 	}
-	if req.LLMProvider != "" {
+	if !s.isEnvLocked("llm_provider") && req.LLMProvider != "" {
 		settings.LLMProvider = req.LLMProvider
 	}
-	settings.LLMModel = req.LLMModel // empty = use default, always accept
-	if req.LogLevel != "" {
+	if !s.isEnvLocked("llm_model") {
+		settings.LLMModel = req.LLMModel // empty = use default, always accept
+	}
+	if !s.isEnvLocked("log_level") && req.LogLevel != "" {
 		settings.LogLevel = req.LogLevel
 	}
-	if req.DataTTL != "" {
+	if !s.isEnvLocked("data_ttl") && req.DataTTL != "" {
 		settings.DataTTL = req.DataTTL
 	}
 

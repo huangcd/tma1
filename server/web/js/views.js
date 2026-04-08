@@ -643,7 +643,6 @@ async function openSettings() {
     document.getElementById('settings-llm-key').value = '';
     document.getElementById('settings-llm-key').type = 'password';
     document.getElementById('settings-llm-key').placeholder = data.llm_api_key_set ? data.llm_api_key_hint : 'sk-...';
-    document.getElementById('settings-clear-key').style.display = data.llm_api_key_set ? '' : 'none';
     document.getElementById('settings-llm-provider').value = data.llm_provider || 'anthropic';
     document.getElementById('settings-llm-model').value = data.llm_model || '';
     document.getElementById('settings-log-level').value = data.log_level || 'info';
@@ -663,8 +662,11 @@ async function openSettings() {
       var locked = overrides.indexOf(key) !== -1;
       badge.style.display = locked ? '' : 'none';
     });
-    // Disable locked inputs.
-    document.getElementById('settings-llm-key').disabled = overrides.indexOf('llm_api_key') !== -1;
+    // Disable locked inputs and hide action buttons for locked fields.
+    var keyLocked = overrides.indexOf('llm_api_key') !== -1;
+    document.getElementById('settings-llm-key').disabled = keyLocked;
+    document.getElementById('settings-clear-key').style.display = (!keyLocked && data.llm_api_key_set) ? '' : 'none';
+    document.querySelectorAll('#settings-llm-key ~ .settings-eye').forEach(function(btn) { btn.style.display = keyLocked ? 'none' : ''; });
     document.getElementById('settings-llm-provider').disabled = overrides.indexOf('llm_provider') !== -1;
     document.getElementById('settings-llm-model').disabled = overrides.indexOf('llm_model') !== -1;
     document.getElementById('settings-log-level').disabled = overrides.indexOf('log_level') !== -1;

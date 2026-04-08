@@ -201,9 +201,9 @@ func (s *Server) handleEvaluatePrompt(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	if llm.Provider == "openai" {
-		err = s.callOpenAI(ctx, llm, model, evalSystemPrompt, userMsg, &result)
+		err = s.callOpenAI(ctx, llm, model, evalSystemPrompt, userMsg, 1024, &result)
 	} else {
-		err = s.callAnthropic(ctx, llm, model, evalSystemPrompt, userMsg, &result)
+		err = s.callAnthropic(ctx, llm, model, evalSystemPrompt, userMsg, 1024, &result)
 	}
 	if err != nil {
 		s.logger.Error("LLM evaluation failed", "err", err)
@@ -215,10 +215,10 @@ func (s *Server) handleEvaluatePrompt(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) callAnthropic(ctx context.Context, llm LLMConfig, model, sysPrompt, userMsg string, out any) error {
+func (s *Server) callAnthropic(ctx context.Context, llm LLMConfig, model, sysPrompt, userMsg string, maxTokens int, out any) error {
 	body := map[string]any{
 		"model":      model,
-		"max_tokens": 1024,
+		"max_tokens": maxTokens,
 		"system":     sysPrompt,
 		"messages":   []map[string]string{{"role": "user", "content": userMsg}},
 	}
@@ -232,7 +232,7 @@ func (s *Server) callAnthropic(ctx context.Context, llm LLMConfig, model, sysPro
 	req.Header.Set("x-api-key", llm.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.llmClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -265,10 +265,10 @@ func (s *Server) callAnthropic(ctx context.Context, llm LLMConfig, model, sysPro
 	return nil
 }
 
-func (s *Server) callOpenAI(ctx context.Context, llm LLMConfig, model, sysPrompt, userMsg string, out any) error {
+func (s *Server) callOpenAI(ctx context.Context, llm LLMConfig, model, sysPrompt, userMsg string, maxTokens int, out any) error {
 	body := map[string]any{
 		"model":      model,
-		"max_tokens": 1024,
+		"max_tokens": maxTokens,
 		"messages": []map[string]string{
 			{"role": "system", "content": sysPrompt},
 			{"role": "user", "content": userMsg},
@@ -283,7 +283,7 @@ func (s *Server) callOpenAI(ctx context.Context, llm LLMConfig, model, sysPrompt
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+llm.APIKey)
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.llmClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -330,12 +330,15 @@ type summaryRequest struct {
 	Prompts      []summaryPrompt `json:"prompts"`
 	TotalPrompts int             `json:"total_prompts"`
 	AvgScore     int             `json:"avg_score"`
+	Lang         string          `json:"lang"` // user's locale (en, zh, es)
 }
 
 type summaryPattern struct {
-	Issue      string `json:"issue"`
-	Frequency  string `json:"frequency"`
-	Suggestion string `json:"suggestion"`
+	Issue       string `json:"issue"`
+	Frequency   string `json:"frequency"`
+	Suggestion  string `json:"suggestion"`
+	Explanation string `json:"explanation"`
+	Examples    []int  `json:"examples"` // prompt indices (1-based) that exhibit this issue
 }
 
 type summaryResponse struct {
@@ -347,24 +350,32 @@ type summaryResponse struct {
 
 const evalSummarySystemPrompt = `You are an expert prompt engineer analyzing a stratified sample of prompts given to AI coding assistants. The sample is biased toward lower-scoring prompts to surface improvement opportunities.
 
-Each prompt has a heuristic score (0-100), turn count (how many back-and-forth turns the session needed), and token cost.
+Each prompt has an index number, a heuristic score (0-100), turn count, and token cost.
 
-Analyze the sample and respond with ONLY valid JSON (no markdown, no explanation outside JSON):
+IMPORTANT: Respond in the language specified by the user (e.g., if lang=zh, write in Chinese; if lang=es, write in Spanish). JSON keys must stay in English, but all text values (summary, issue, suggestion, explanation, top_tip) must be in the user's language.
+
+Respond with ONLY valid JSON (no markdown):
 {
-  "summary": "<2-3 sentence narrative about the overall prompt quality patterns you see>",
+  "summary": "<2-3 sentence narrative about overall prompt quality patterns>",
   "patterns": [
-    {"issue": "<concise issue name>", "frequency": "high|medium|low", "suggestion": "<specific actionable advice>"}
+    {
+      "issue": "<clear issue name in user's language>",
+      "frequency": "high|medium|low",
+      "suggestion": "<specific actionable advice>",
+      "explanation": "<2-3 sentences explaining WHY this matters and HOW to fix it, with a concrete before/after example>",
+      "examples": [1, 3, 7]
+    }
   ],
-  "top_tip": "<single most impactful improvement the user could make>"
+  "top_tip": "<the single highest-leverage improvement, with a concrete example>"
 }
 
 Rules:
-- Identify 3-5 recurring patterns across the prompts
-- frequency: "high" = affects >50% of sample, "medium" = 20-50%, "low" = <20%
-- Suggestions must be specific and actionable, not generic
-- top_tip should be the single highest-leverage change
-- Keep summary under 80 words
-- Keep each suggestion under 100 characters`
+- 3-5 patterns, ordered by impact (highest first)
+- frequency: "high" >50%, "medium" 20-50%, "low" <20% of sample
+- explanation: must include a concrete before/after example showing the improvement
+- examples: list the prompt indices (1-based) that exhibit this pattern
+- top_tip: one actionable sentence with a specific example
+- All text in the user's specified language`
 
 func (s *Server) handleEvaluateSummary(w http.ResponseWriter, r *http.Request) {
 	llm := s.getLLMConfig()
@@ -393,9 +404,13 @@ func (s *Server) handleEvaluateSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build user message with truncated prompts.
+	lang := req.Lang
+	if lang == "" {
+		lang = "en"
+	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Analyze this stratified sample of %d prompts (from %d total, avg heuristic score: %d):\n\n",
-		len(req.Prompts), req.TotalPrompts, req.AvgScore)
+	fmt.Fprintf(&sb, "Language: %s\n\nAnalyze this stratified sample of %d prompts (from %d total, avg heuristic score: %d):\n\n",
+		lang, len(req.Prompts), req.TotalPrompts, req.AvgScore)
 	for i, p := range req.Prompts {
 		content := p.Content
 		if len(content) > 200 {
@@ -405,7 +420,7 @@ func (s *Server) handleEvaluateSummary(w http.ResponseWriter, r *http.Request) {
 			i+1, p.Score, p.Turns, p.CostTokens, content)
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	model := llm.resolvedModel()
@@ -413,9 +428,9 @@ func (s *Server) handleEvaluateSummary(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	if llm.Provider == "openai" {
-		err = s.callOpenAI(ctx, llm, model, evalSummarySystemPrompt, sb.String(), &result)
+		err = s.callOpenAI(ctx, llm, model, evalSummarySystemPrompt, sb.String(), 4096, &result)
 	} else {
-		err = s.callAnthropic(ctx, llm, model, evalSummarySystemPrompt, sb.String(), &result)
+		err = s.callAnthropic(ctx, llm, model, evalSummarySystemPrompt, sb.String(), 4096, &result)
 	}
 	if err != nil {
 		s.logger.Error("LLM summary evaluation failed", "err", err)

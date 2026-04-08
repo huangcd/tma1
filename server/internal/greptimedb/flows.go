@@ -77,6 +77,19 @@ var sessionTableDDLs = []string{
     cache_read_tokens      BIGINT NULL,
     cache_creation_tokens  BIGINT NULL
 ) WITH ('append_mode'='true')`,
+	`CREATE TABLE IF NOT EXISTS tma1_prompt_insights (
+    ts              TIMESTAMP TIME INDEX,
+    insight_id      STRING SKIPPING INDEX,
+    summary         STRING NULL,
+    patterns        STRING NULL,
+    top_tip         STRING NULL,
+    model           STRING NULL,
+    sample_size     INT32 NULL,
+    total_prompts   INT32 NULL,
+    avg_score       INT32 NULL,
+    sample_prompts  STRING NULL,
+    time_range      STRING NULL
+) WITH ('append_mode'='true')`,
 }
 
 // sessionTableUpgrades are ALTER TABLE statements for adding columns to existing tables.

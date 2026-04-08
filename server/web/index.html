@@ -1231,7 +1231,9 @@
         <h3 style="display:flex;align-items:center;gap:10px">
           <span data-i18n="pr.ai_insights">AI Insights</span>
           <button class="pr-eval-btn" onclick="pr_loadAIInsights()" id="pr-ai-btn" data-i18n="pr.generate_insights">Generate</button>
+          <button class="pr-eval-btn" onclick="pr_toggleHistory()" id="pr-ai-history-btn" data-i18n="pr.ai_history">History</button>
         </h3>
+        <div id="pr-ai-history-panel" style="display:none"></div>
         <div id="pr-ai-insights">
           <div class="chart-empty" data-i18n="pr.ai_click_to_generate">Click Generate to analyze a sample of your prompts with AI.</div>
         </div>
@@ -1304,23 +1306,23 @@
         <div class="settings-row">
           <div class="settings-label" data-i18n="settings.time_range">Time Range</div>
           <select class="settings-input" style="flex:0 0 auto;width:140px" id="settings-time-range" onchange="document.getElementById('time-range').value=this.value;onTimeRangeChange()">
-            <option value="15m">Last 15m</option>
-            <option value="30m">Last 30m</option>
-            <option value="1h">Last 1h</option>
-            <option value="6h">Last 6h</option>
-            <option value="24h">Last 24h</option>
-            <option value="7d">Last 7d</option>
-            <option value="30d">Last 30d</option>
+            <option value="15m" data-i18n="time.15m">Last 15m</option>
+            <option value="30m" data-i18n="time.30m">Last 30m</option>
+            <option value="1h" data-i18n="time.1h">Last 1h</option>
+            <option value="6h" data-i18n="time.6h">Last 6h</option>
+            <option value="24h" data-i18n="time.24h">Last 24h</option>
+            <option value="7d" data-i18n="time.7d">Last 7d</option>
+            <option value="30d" data-i18n="time.30d">Last 30d</option>
           </select>
         </div>
         <div class="settings-row">
           <div class="settings-label" data-i18n="settings.auto_refresh">Auto-refresh</div>
           <select class="settings-input" style="flex:0 0 auto;width:140px" id="settings-auto-refresh" onchange="document.getElementById('auto-refresh').value=this.value;onAutoRefreshChange()">
-            <option value="0">Off</option>
-            <option value="15">15s</option>
-            <option value="30">30s</option>
-            <option value="60">1m</option>
-            <option value="300">5m</option>
+            <option value="0" data-i18n="refresh.off">Off</option>
+            <option value="15" data-i18n="refresh.15s">&#x21bb; 15s</option>
+            <option value="30" data-i18n="refresh.30s">&#x21bb; 30s</option>
+            <option value="60" data-i18n="refresh.1m">&#x21bb; 1m</option>
+            <option value="300" data-i18n="refresh.5m">&#x21bb; 5m</option>
           </select>
         </div>
       </div>
