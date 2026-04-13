@@ -12,7 +12,7 @@ You are helping the user query their local TMA1 observability data.
 TMA1 stores data from four kinds of sources:
 - **Claude Code** sends OTel **metrics** (cumulative counters) + **logs** (event stream) + hooks + JSONL transcripts
 - **Codex** sends OTel **logs** + **metrics** + session JSONL (auto-parsed from `~/.codex/sessions/`)
-- **OpenClaw** sends OTel **traces** (spans with openclaw.* attributes) + **metrics** (openclaw_* tables)
+- **OpenClaw** sends OTel **traces** (spans with openclaw.* attributes) + **metrics** (openclaw_* tables) + session JSONL (auto-parsed from `~/.openclaw/agents/*/sessions/`)
 - **Other agents** (standard GenAI SDK) send OTel **traces** (spans with gen_ai.* semantic conventions)
 
 ## Step 1: Check TMA1 is running
@@ -469,7 +469,7 @@ ORDER BY p95_ms DESC
 
 ### Sessions (from hooks + JSONL transcripts)
 
-The `tma1_messages` table includes token usage columns: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens` (populated for assistant messages from JSONL transcripts). Both `tma1_hook_events` and `tma1_messages` include a `conversation_id` column linking events within the same conversation turn.
+The `tma1_messages` table includes token usage columns: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `duration_ms` (populated for assistant messages from JSONL transcripts). Both `tma1_hook_events` and `tma1_messages` include a `conversation_id` column linking events within the same conversation turn. Agent source is identified by `agent_source` in `tma1_hook_events`: `'claude_code'`, `'codex'`, or `'openclaw'`. OpenClaw session IDs are prefixed `oc:<agentId>:<sessionId>`.
 
 ```sql
 -- List recent sessions with tool counts

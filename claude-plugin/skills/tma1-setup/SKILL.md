@@ -163,6 +163,8 @@ openclaw config set diagnostics.otel.metrics true
 openclaw gateway restart
 ```
 
+Session transcripts at `~/.openclaw/agents/*/sessions/*.jsonl` are auto-discovered — no extra setup needed for Sessions and Prompts views.
+
 **Other OTel-compatible agents** (standard GenAI SDK) — typically export traces:
 ```bash
 # macOS / Linux

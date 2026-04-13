@@ -15,6 +15,30 @@ var prAllScores = [];    // all composite scores for distribution
 var prLLMAvailable = null; // null = unchecked, true/false
 var prExpandedIdx = -1;
 
+// pr_sourceSQL returns a WHERE clause fragment for agent_source filtering.
+// Uses session_id IN (SELECT ...) to filter tma1_messages by agent_source from tma1_hook_events.
+function pr_sourceSQL() {
+  var el = document.getElementById('pr-source-filter');
+  if (!el || !el.value) return '';
+  var iv = intervalSQL();
+  return " AND session_id IN (SELECT DISTINCT session_id FROM tma1_hook_events WHERE agent_source = '" + escapeSQLString(el.value) + "' AND ts > NOW() - INTERVAL '" + iv + "')";
+}
+
+function pr_reload() {
+  prDataCache = null;
+  prPromptData = [];
+  prPage = 0;
+  prExpandedIdx = -1;
+  pr_loadCards().then(function(ok) {
+    if (!ok) return;
+    pr_loadData().then(function() {
+      pr_loadOverview();
+      pr_loadPrompts();
+      pr_loadPatterns();
+    });
+  });
+}
+
 // ============================================================
 // Scoring Engine
 // ============================================================
@@ -313,7 +337,7 @@ async function pr_loadCards() {
   try {
     var res = await query(
       "SELECT COUNT(*) AS total_prompts, COUNT(DISTINCT session_id) AS sessions " +
-      "FROM tma1_messages WHERE message_type = 'user' AND ts > NOW() - INTERVAL '" + iv + "'"
+      "FROM tma1_messages WHERE message_type = 'user' AND ts > NOW() - INTERVAL '" + iv + "'" + pr_sourceSQL()
     );
     var r = rows(res);
     if (!r || !r[0]) return false;
@@ -342,8 +366,8 @@ async function pr_loadData() {
   // Q1: User prompts
   var promptRes = await query(
     "SELECT session_id, ts, content, model FROM tma1_messages " +
-    "WHERE message_type = 'user' AND ts > NOW() - INTERVAL '" + iv + "' " +
-    "ORDER BY ts DESC LIMIT 500"
+    "WHERE message_type = 'user' AND ts > NOW() - INTERVAL '" + iv + "'" + pr_sourceSQL() +
+    " ORDER BY ts DESC LIMIT 500"
   );
   var prompts = rowsToObjects(promptRes);
   if (!prompts || prompts.length === 0) return [];

@@ -28,7 +28,7 @@ Tagline: *"Your agent runs. TMA1 remembers."*
 | `server/internal/greptimedb/` | Start, stop, health-check GreptimeDB process + Flow init |
 | `server/internal/handler/` | HTTP handlers: /health, /status, /api/query, /api/evaluate, /api/settings, /api/hooks, /api/hooks/stream (SSE), /v1/otlp/*, dashboard UI |
 | `server/internal/hooks/` | Hook script installer for Claude Code integration |
-| `server/internal/transcript/` | JSONL transcript watcher (Claude Code) + Codex session log parser |
+| `server/internal/transcript/` | JSONL transcript watcher (Claude Code) + Codex session log parser + OpenClaw session log parser |
 | `server/web/` | Embedded dashboard (HTML + JS + CSS via embed.FS), 6 views: Claude Code, Codex, OpenClaw, OTel GenAI, Sessions, Prompts + Agent Canvas |
 | `site/` | Astro landing page → GitHub Pages → tma1.ai |
 | `.claude-plugin/` | Claude Code Marketplace registration |
@@ -41,7 +41,7 @@ Tagline: *"Your agent runs. TMA1 remembers."*
 Agent (Claude Code / Codex / OpenClaw / any GenAI app)
     │  OTLP/HTTP → http://localhost:14318/v1/otlp
     │  Hook events → http://localhost:14318/api/hooks (Claude Code)
-    │  JSONL transcripts → ~/.claude/projects/ (CC) / ~/.codex/sessions/ (Codex)
+    │  JSONL transcripts → ~/.claude/projects/ (CC) / ~/.codex/sessions/ (Codex) / ~/.openclaw/agents/ (OpenClaw)
     ▼
 tma1-server  port 14318
     │  reverse-proxies OTLP to GreptimeDB
@@ -136,6 +136,8 @@ Additionally, Codex session logs at `~/.codex/sessions/YYYY/MM/DD/rollout-*.json
 OpenClaw span types: `openclaw.model.usage` (LLM calls), `openclaw.message.processed` (message handling), `openclaw.webhook.processed` (webhook OK), `openclaw.webhook.error` (webhook error, STATUS_CODE_ERROR), `openclaw.session.stuck` (stuck session, STATUS_CODE_ERROR).
 
 Key trace columns: `span_attributes.openclaw.{model,channel,provider,sessionKey,sessionId,outcome,messageId,tokens.input,tokens.output,tokens.cache_read,tokens.cache_write,tokens.total}`
+
+Additionally, OpenClaw JSONL session transcripts at `~/.openclaw/agents/<agentId>/sessions/<timestamp>_<sessionId>.jsonl` are auto-discovered and parsed by tma1-server (`OPENCLAW_STATE_DIR` env var overrides the base path; legacy `~/.clawdbot/` is also scanned). The JSONL format (pi-coding-agent v3) contains a session header, then tree-structured entries (message, compaction, model_change, etc.). Messages carry full `usage` data (input/output/cacheRead/cacheWrite tokens + cost breakdown). Parsed data is stored in `tma1_hook_events` and `tma1_messages` (agent_source = 'openclaw', session_id prefixed `oc:<agentId>:<sessionId>`). Archive files (`.reset.*`, `.deleted.*`, `.bak.*`) are skipped. No configuration needed.
 
 **Other agents (GenAI SDK)** → OTel traces:
 
@@ -235,6 +237,7 @@ On first start, tma1 writes a default GreptimeDB config to `~/.tma1/config/stand
 | Hook script installer | `server/internal/hooks/hooks.go` |
 | Transcript watcher (CC JSONL) | `server/internal/transcript/watcher.go` |
 | Codex session parser | `server/internal/transcript/codex.go` |
+| OpenClaw session parser | `server/internal/transcript/openclaw.go` |
 | Dashboard UI | `server/web/index.html` |
 | Sessions view JS | `server/web/js/sessions.js` — orchestrator (KPI cards, session list, detail loading, search) |
 | Sessions sub-modules | `server/web/js/sessions-{stats,detail,insights,waterfall,timeline}.js` — stats computation, detail overlay, insight panels, waterfall chart, timeline rendering |
