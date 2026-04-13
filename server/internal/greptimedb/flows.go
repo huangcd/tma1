@@ -75,7 +75,8 @@ var sessionTableDDLs = []string{
     input_tokens    BIGINT NULL,
     output_tokens   BIGINT NULL,
     cache_read_tokens      BIGINT NULL,
-    cache_creation_tokens  BIGINT NULL
+    cache_creation_tokens  BIGINT NULL,
+    duration_ms            BIGINT NULL
 ) WITH ('append_mode'='true')`,
 	`CREATE TABLE IF NOT EXISTS tma1_prompt_insights (
     ts              TIMESTAMP TIME INDEX,
@@ -102,6 +103,7 @@ var sessionTableUpgrades = []string{
 	`ALTER TABLE tma1_messages ADD COLUMN output_tokens BIGINT NULL`,
 	`ALTER TABLE tma1_messages ADD COLUMN cache_read_tokens BIGINT NULL`,
 	`ALTER TABLE tma1_messages ADD COLUMN cache_creation_tokens BIGINT NULL`,
+	`ALTER TABLE tma1_messages ADD COLUMN duration_ms BIGINT NULL`,
 }
 
 func isIgnorableSchemaUpgradeError(err error) bool {

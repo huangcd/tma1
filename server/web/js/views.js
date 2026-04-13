@@ -294,6 +294,7 @@ async function onTabChange(tab) {
 
 // Tab navigation (OpenClaw view)
 document.querySelectorAll('#oc-tabs .tab').forEach(function(btn) {
+  if (btn.dataset.link) return; // skip link-style tabs (handled by onclick)
   btn.addEventListener('click', function() {
     document.querySelectorAll('#oc-tabs .tab').forEach(function(t) { t.classList.remove('active'); });
     document.querySelectorAll('#view-openclaw .tab-content').forEach(function(t) { t.classList.remove('active'); });

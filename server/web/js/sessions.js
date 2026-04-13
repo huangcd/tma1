@@ -139,9 +139,10 @@ async function sess_loadList() {
     var cwd = d.cwd || '';
     var shortCwd = cwd.length > 40 ? '\u2026' + cwd.slice(-39) : cwd;
     var agentSrc = d.agent_source || '';
-    var sourceBadge = (agentSrc === 'codex')
-      ? '<span class="badge badge-codex">Codex</span>'
-      : '<span class="badge badge-cc">CC</span>';
+    var sourceBadge;
+    if (agentSrc === 'codex') sourceBadge = '<span class="badge badge-codex">Codex</span>';
+    else if (agentSrc === 'openclaw') sourceBadge = '<span class="badge badge-oc">OC</span>';
+    else sourceBadge = '<span class="badge badge-cc">CC</span>';
     var costStr = costMap[sid] != null ? fmtCost(costMap[sid]) : '\u2014';
 
     var shortSid = sid.length > 8 ? sid.slice(0, 8) : sid;
@@ -220,7 +221,7 @@ async function sess_loadDetail(sessionId, agentSource) {
     ).catch(function() { return null; }),
     query(
       "SELECT ts, session_id, message_type, tool_name, tool_use_id, content, model, " +
-      "input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens " +
+      "input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, duration_ms " +
       "FROM tma1_messages WHERE session_id = '" + sid + "' ORDER BY ts ASC LIMIT 5000"
     ).catch(function() { return null; }),
   ]);
@@ -304,6 +305,25 @@ async function sess_loadDetail(sessionId, agentSource) {
         apiCalls = sess_parseCodexOTel(otelRows, conversationIds);
       }
     }
+  } else if (agentSource === 'openclaw') {
+    // OpenClaw: usage + duration data is already in tma1_messages (parsed from JSONL transcript).
+    for (var oi = 0; oi < messages.length; oi++) {
+      var om = messages[oi];
+      if (om.message_type !== 'assistant') continue;
+      var oIn = Number(om.input_tokens) || 0;
+      var oOut = Number(om.output_tokens) || 0;
+      if (oIn === 0 && oOut === 0) continue;
+      var oCacheR = Number(om.cache_read_tokens) || 0;
+      var oCacheW = Number(om.cache_creation_tokens) || 0;
+      var oPrice = sess_lookupPrice(om.model);
+      apiCalls.push({
+        ts: tsToMs(om.ts), model: om.model || '',
+        inputTokens: oIn, outputTokens: oOut,
+        cacheTokens: oCacheR, cacheCreationTokens: oCacheW,
+        cost: oIn * oPrice.input / 1000000 + oOut * oPrice.output / 1000000,
+        durationMs: Number(om.duration_ms) || 0, toolUseIds: [],
+      });
+    }
   } else {
     // CC: prefer message-level usage data, fallback to OTel logs.
     var hasUsageInMessages = messages.some(function(m) {
@@ -358,9 +378,9 @@ async function sess_loadDetail(sessionId, agentSource) {
   }
   if (sessDetailVersion !== myVersion) return;
 
-  // Phase 3: CC trace spans (enhanced telemetry).
+  // Phase 3: CC trace spans (enhanced telemetry, CC-only).
   var ccTraceSpans = null;
-  if (agentSource !== 'codex' && timeline.length > 0) {
+  if (agentSource === 'claude_code' && timeline.length > 0) {
     var trBetween2 = "timestamp BETWEEN '" + new Date(timeline[0].ts - 60000).toISOString() + "' AND '" + new Date(timeline[timeline.length - 1].ts + 60000).toISOString() + "'";
     var trRes = await query(
       "SELECT trace_id, span_id, parent_span_id, span_name, timestamp, duration_nano, " +
@@ -400,8 +420,8 @@ async function sess_search() {
   if (!q) { el.innerHTML = ''; return; }
   var iv = intervalSQL();
   var results = await Promise.all([
-    query("SELECT session_id, ts, 'hook' AS src, event_type AS msg_type, tool_name, COALESCE(tool_input, '') AS content FROM tma1_hook_events WHERE (tool_name LIKE '%" + escapeSQLString(q) + "%' OR tool_input LIKE '%" + escapeSQLString(q) + "%' OR tool_result LIKE '%" + escapeSQLString(q) + "%') AND ts > NOW() - INTERVAL '" + iv + "' ORDER BY ts DESC LIMIT 25").catch(function() { return null; }),
-    query("SELECT session_id, ts, 'msg' AS src, message_type AS msg_type, '' AS tool_name, COALESCE(content, '') AS content FROM tma1_messages WHERE matches_term(content, '" + escapeSQLString(q) + "') AND ts > NOW() - INTERVAL '" + iv + "' ORDER BY ts DESC LIMIT 25").catch(function() { return null; }),
+    query("SELECT session_id, ts, 'hook' AS src, event_type AS msg_type, tool_name, agent_source, COALESCE(tool_input, '') AS content FROM tma1_hook_events WHERE (tool_name LIKE '%" + escapeSQLString(q) + "%' OR tool_input LIKE '%" + escapeSQLString(q) + "%' OR tool_result LIKE '%" + escapeSQLString(q) + "%') AND ts > NOW() - INTERVAL '" + iv + "' ORDER BY ts DESC LIMIT 25").catch(function() { return null; }),
+    query("SELECT session_id, ts, 'msg' AS src, message_type AS msg_type, '' AS tool_name, '' AS agent_source, COALESCE(content, '') AS content FROM tma1_messages WHERE matches_term(content, '" + escapeSQLString(q) + "') AND ts > NOW() - INTERVAL '" + iv + "' ORDER BY ts DESC LIMIT 25").catch(function() { return null; }),
   ]);
   var data = [];
   if (results[0]) data = data.concat(rowsToObjects(results[0]));
@@ -416,8 +436,10 @@ async function sess_search() {
     var content = d.content || '';
     if (content.length > 200) content = content.slice(0, 200) + '\u2026';
     var label = d.tool_name || d.msg_type || '';
-    html += '<div class="search-result-item clickable" onclick="sess_openDetail(\x27' + escapeJSString(d.session_id) + '\x27,\x27\x27,' + (ms || 0) + ')">';
-    html += '<div class="search-result-meta"><span class="badge badge-cc">' + escapeHTML((d.session_id || '').slice(0, 8)) + '</span> ';
+    var sSrc = d.agent_source || '';
+    var sBadgeCls = sSrc === 'codex' ? 'badge-codex' : sSrc === 'openclaw' ? 'badge-oc' : 'badge-cc';
+    html += '<div class="search-result-item clickable" onclick="sess_openDetail(\x27' + escapeJSString(d.session_id) + '\x27,\x27' + escapeJSString(sSrc) + '\x27,' + (ms || 0) + ')">';
+    html += '<div class="search-result-meta"><span class="badge ' + sBadgeCls + '">' + escapeHTML((d.session_id || '').slice(0, 8)) + '</span> ';
     if (label) html += '<span class="tl-tool-name" style="font-size:12px">' + escapeHTML(label) + '</span> ';
     html += '<span class="tl-time">' + (ms ? new Date(ms).toLocaleString() : '') + '</span></div>';
     html += '<div class="search-result-content">' + escapeHTML(content) + '</div></div>';

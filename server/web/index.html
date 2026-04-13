@@ -541,6 +541,7 @@
       <button class="tab" data-octab="oc-traces" data-i18n="tab.oc_traces">Traces</button>
       <button class="tab" data-octab="oc-cost" data-i18n="tab.oc_cost">Cost</button>
       <button class="tab" data-octab="oc-security" data-i18n="tab.oc_security">Security</button>
+      <button class="tab" data-link="sessions" onclick="switchToSessions('openclaw')" data-i18n="tab.sessions">Sessions→</button>
     </div>
 
     <!-- OC Overview -->
@@ -1139,6 +1140,7 @@
           <option value="" data-i18n="sessions.source_all">All</option>
           <option value="claude_code" data-i18n="sessions.source_cc">Claude Code</option>
           <option value="codex" data-i18n="sessions.source_codex">Codex</option>
+          <option value="openclaw" data-i18n="sessions.source_openclaw">OpenClaw</option>
         </select>
         <input class="filter-input" id="sess-keyword-filter" type="text"
                placeholder="Filter by tool or keyword..."
@@ -1199,6 +1201,15 @@
         <div class="label" data-i18n="pr.card.avg_cost">Avg Cost / Session</div>
         <div class="value cost" id="pr-val-cost">&mdash;</div>
       </div>
+    </div>
+
+    <div class="filters" style="margin-bottom:8px">
+      <select class="time-select" id="pr-source-filter" onchange="pr_reload()">
+        <option value="" data-i18n="sessions.source_all">All</option>
+        <option value="claude_code" data-i18n="sessions.source_cc">Claude Code</option>
+        <option value="codex" data-i18n="sessions.source_codex">Codex</option>
+        <option value="openclaw" data-i18n="sessions.source_openclaw">OpenClaw</option>
+      </select>
     </div>
 
     <div class="tabs" id="pr-tabs">
