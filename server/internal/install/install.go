@@ -58,7 +58,9 @@ func EnsureGreptimeDB(dataDir, version string, logger *slog.Logger) (binPath str
 	binPath = filepath.Join(binDir, greptimeBinaryName())
 	versionFile := filepath.Join(binDir, ".version")
 
+	binExists := false
 	if _, err := os.Stat(binPath); err == nil {
+		binExists = true
 		needsUpgrade, resolvedVer := checkVersionMismatch(version, versionFile, binPath, logger)
 		if !needsUpgrade {
 			logger.Info("greptimedb binary already present", "path", binPath, "version", resolvedVer)
@@ -70,6 +72,14 @@ func EnsureGreptimeDB(dataDir, version string, logger *slog.Logger) (binPath str
 
 	resolvedVersion, err := resolveVersion(version)
 	if err != nil {
+		if binExists {
+			// Network is unreachable but a binary is already present — use it
+			// rather than blocking startup. The upgrade will happen on next
+			// start when connectivity is restored.
+			logger.Warn("cannot resolve greptimedb version, using existing binary",
+				"path", binPath, "error", err)
+			return binPath, nil
+		}
 		return "", fmt.Errorf("install: resolve version: %w", err)
 	}
 	logger.Info("downloading greptimedb", "version", resolvedVersion)
@@ -87,6 +97,11 @@ func EnsureGreptimeDB(dataDir, version string, logger *slog.Logger) (binPath str
 	defer tmpFile.Close()
 
 	if err := downloadFile(tmpFile, downloadURL); err != nil {
+		if binExists {
+			logger.Warn("cannot download greptimedb, using existing binary",
+				"path", binPath, "error", err)
+			return binPath, nil
+		}
 		return "", fmt.Errorf("install: download %s: %w", downloadURL, err)
 	}
 
