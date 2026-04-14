@@ -15,13 +15,42 @@ var prAllScores = [];    // all composite scores for distribution
 var prLLMAvailable = null; // null = unchecked, true/false
 var prExpandedIdx = -1;
 
-// pr_sourceSQL returns a WHERE clause fragment for agent_source filtering.
-// Uses session_id IN (SELECT ...) to filter tma1_messages by agent_source from tma1_hook_events.
-function pr_sourceSQL() {
+// pr_sourceSessionIDs fetches session IDs matching the selected agent_source filter.
+// Returns null when "All" is selected (no filter needed), or a SQL IN-list string.
+// Uses a two-step approach instead of a subquery to avoid GreptimeDB memory issues.
+var prSourceCache = { range: null, source: null, ids: null };
+
+async function pr_sourceSessionIDs() {
   var el = document.getElementById('pr-source-filter');
-  if (!el || !el.value) return '';
+  if (!el || !el.value) return null; // "All" — no filter
+
+  var src = el.value;
   var iv = intervalSQL();
-  return " AND session_id IN (SELECT DISTINCT session_id FROM tma1_hook_events WHERE agent_source = '" + escapeSQLString(el.value) + "' AND ts > NOW() - INTERVAL '" + iv + "')";
+  var cacheKey = iv + ':' + src;
+  if (prSourceCache.range === cacheKey) return prSourceCache.ids;
+
+  var res = await query(
+    "SELECT session_id FROM tma1_hook_events WHERE agent_source = '" +
+    escapeSQLString(src) + "' AND ts > NOW() - INTERVAL '" + iv +
+    "' GROUP BY session_id ORDER BY MAX(ts) DESC LIMIT 500"
+  );
+  var r = rowsToObjects(res);
+  if (!r || r.length === 0) {
+    prSourceCache = { range: cacheKey, source: src, ids: '' };
+    return '';
+  }
+  var ids = r.map(function(row) { return "'" + escapeSQLString(row.session_id) + "'"; }).join(',');
+  prSourceCache = { range: cacheKey, source: src, ids: ids };
+  return ids;
+}
+
+// prCachedSourceIDs is populated in pr_loadCards() before source-filtered queries run.
+var prCachedSourceIDs = null; // null = "All", '' = no match, 'id,...' = filter list
+
+function pr_sourceSQL() {
+  if (prCachedSourceIDs === null) return ''; // "All"
+  if (prCachedSourceIDs === '') return ' AND 1=0'; // no matching sessions
+  return ' AND session_id IN (' + prCachedSourceIDs + ')';
 }
 
 function pr_reload() {
@@ -29,8 +58,26 @@ function pr_reload() {
   prPromptData = [];
   prPage = 0;
   prExpandedIdx = -1;
+  prSourceCache = { range: null, source: null, ids: null }; // invalidate source cache on reload
   pr_loadCards().then(function(ok) {
-    if (!ok) return;
+    if (!ok) {
+      // Clear KPI cards and content areas when no data matches the filter.
+      ['pr-val-prompts', 'pr-val-score', 'pr-val-turns', 'pr-val-cost'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = '\u2014';
+      });
+      var empty = '<div class="chart-empty">' + t('empty.no_data') + '</div>';
+      ['pr-chart-distribution', 'pr-chart-trend', 'pr-chart-suggestions', 'pr-chart-dimensions', 'pr-prompt-list', 'pr-pattern-content'].forEach(function(id) {
+        if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = empty;
+      });
+      var pg = document.getElementById('pr-pagination');
+      if (pg) pg.innerHTML = '';
+      var ai = document.getElementById('pr-ai-container');
+      if (ai) ai.style.display = 'none';
+      return;
+    }
     pr_loadData().then(function() {
       pr_loadOverview();
       pr_loadPrompts();
@@ -335,6 +382,7 @@ async function pr_loadCards() {
   prPromptData = [];  // force pr_loadData() re-fetch (don't let AI Insights use stale data)
   var iv = intervalSQL();
   try {
+    prCachedSourceIDs = await pr_sourceSessionIDs();
     var res = await query(
       "SELECT COUNT(*) AS total_prompts, COUNT(DISTINCT session_id) AS sessions " +
       "FROM tma1_messages WHERE message_type = 'user' AND ts > NOW() - INTERVAL '" + iv + "'" + pr_sourceSQL()

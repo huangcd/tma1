@@ -1203,19 +1203,16 @@
       </div>
     </div>
 
-    <div class="filters" style="margin-bottom:8px">
-      <select class="time-select" id="pr-source-filter" onchange="pr_reload()">
+    <div class="tabs" id="pr-tabs">
+      <button class="tab active" data-prtab="pr-overview" data-i18n="tab.overview">Overview</button>
+      <button class="tab" data-prtab="pr-prompts" data-i18n="pr.tab.prompts">Prompts</button>
+      <button class="tab" data-prtab="pr-patterns" data-i18n="pr.tab.patterns">Patterns</button>
+      <select class="time-select" id="pr-source-filter" onchange="pr_reload()" style="margin-left:auto">
         <option value="" data-i18n="sessions.source_all">All</option>
         <option value="claude_code" data-i18n="sessions.source_cc">Claude Code</option>
         <option value="codex" data-i18n="sessions.source_codex">Codex</option>
         <option value="openclaw" data-i18n="sessions.source_openclaw">OpenClaw</option>
       </select>
-    </div>
-
-    <div class="tabs" id="pr-tabs">
-      <button class="tab active" data-prtab="pr-overview" data-i18n="tab.overview">Overview</button>
-      <button class="tab" data-prtab="pr-prompts" data-i18n="pr.tab.prompts">Prompts</button>
-      <button class="tab" data-prtab="pr-patterns" data-i18n="pr.tab.patterns">Patterns</button>
     </div>
 
     <!-- Overview -->

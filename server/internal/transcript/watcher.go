@@ -24,11 +24,12 @@ import (
 var lastInsertTS atomic.Int64
 
 const (
-	pollInterval   = 500 * time.Millisecond
-	maxContentLen  = 32768
-	insertTimeout  = 10 * time.Second
-	maxToolInput   = 2048
-	maxToolContent = 4096
+	pollInterval    = 500 * time.Millisecond
+	maxContentLen   = 32768
+	insertTimeout   = 10 * time.Second
+	maxToolInput    = 2048
+	maxToolContent  = 4096
+	sessionStartKey = "__session_started__" // seen-map marker for SessionStart dedup
 )
 
 // maxConcurrentInserts limits the number of concurrent SQL INSERT goroutines
@@ -67,6 +68,12 @@ func NewWatcher(greptimeHTTPPort int, logger *slog.Logger, broadcast BroadcastFu
 // Watch starts tailing a JSONL transcript file for the given session.
 // It reads from the beginning to capture existing content, then polls for new lines.
 // Safe to call multiple times for the same session — duplicates are ignored.
+//
+// The watcher always emits its own SessionStart on the first valid transcript entry.
+// When called from the hook handler, this may produce a duplicate SessionStart row,
+// but tma1_hook_events is append_mode=true and consumers use SELECT DISTINCT session_id,
+// so duplicates are harmless. This is safer than suppressing the fallback, because the
+// hook handler's own insertHookEvent is async and may fail silently.
 func (w *Watcher) Watch(sessionID, transcriptPath string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -235,6 +242,19 @@ func (w *Watcher) processLine(sessionID, line string, seen map[string]struct{}) 
 	}
 	if entry.Message == nil {
 		return
+	}
+
+	// Emit SessionStart on the first valid entry processed for this session
+	// unless it has already been recorded in seen.
+	if _, ok := seen[sessionStartKey]; !ok {
+		if err := w.insertCCSessionStart(sessionID, entry.CWD); err != nil {
+			w.logger.Warn("failed to insert SessionStart, will retry on next line",
+				"session", sessionID, "error", err)
+			// Don't set flag — retry on next processLine call.
+			// Continue below to process the current message (don't lose it).
+		} else {
+			seen[sessionStartKey] = struct{}{}
+		}
 	}
 
 	role := entry.Message.Role
@@ -470,4 +490,60 @@ func (w *Watcher) broadcastHookEvent(sessionID, eventType, toolName, toolInput, 
 		return
 	}
 	w.broadcast(data)
+}
+
+// insertCCSessionStart writes a SessionStart event to tma1_hook_events for Claude Code sessions.
+// This aligns the CC watcher with Codex/OpenClaw parsers, ensuring the source filter works
+// even if CC HTTP hooks are not configured.
+// Runs synchronously so the caller can retry on failure.
+// Acquires insertSem to respect the concurrency limit shared with other inserts.
+func (w *Watcher) insertCCSessionStart(sessionID, cwd string) error {
+	insertSem <- struct{}{}
+	defer func() { <-insertSem }()
+
+	msTs := time.Now().UnixMilli()
+	for {
+		prev := lastInsertTS.Load()
+		next := msTs
+		if next <= prev {
+			next = prev + 1
+		}
+		if lastInsertTS.CompareAndSwap(prev, next) {
+			msTs = next
+			break
+		}
+	}
+
+	stmt := fmt.Sprintf(
+		"INSERT INTO tma1_hook_events "+
+			"(ts, session_id, event_type, agent_source, tool_name, tool_input, tool_result, "+
+			"tool_use_id, agent_id, agent_type, notification_type, \"message\", cwd, transcript_path, conversation_id) "+
+			"VALUES (%d, '%s', 'SessionStart', 'claude_code', '', '', '', '', '', '', '', '', '%s', '', '')",
+		msTs,
+		escapeSQLString(sessionID),
+		escapeSQLString(truncate(cwd, 512)),
+	)
+
+	form := url.Values{}
+	form.Set("sql", stmt)
+
+	ctx, cancel := context.WithTimeout(context.Background(), insertTimeout)
+	defer cancel()
+
+	req, err := newPostRequest(ctx, w.sqlURL, form)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("non-200 status: %d", resp.StatusCode)
+	}
+	return nil
 }
