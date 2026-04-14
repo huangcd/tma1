@@ -237,6 +237,13 @@ func (w *Watcher) processLine(sessionID, line string, seen map[string]struct{}) 
 		return
 	}
 
+	// Emit SessionStart on first valid entry (aligns CC watcher with Codex/OpenClaw parsers).
+	const sessionStartKey = "__session_started__"
+	if _, ok := seen[sessionStartKey]; !ok {
+		seen[sessionStartKey] = struct{}{}
+		w.insertCCSessionStart(sessionID, entry.CWD)
+	}
+
 	role := entry.Message.Role
 	if role == "human" {
 		role = "user"
@@ -470,4 +477,37 @@ func (w *Watcher) broadcastHookEvent(sessionID, eventType, toolName, toolInput, 
 		return
 	}
 	w.broadcast(data)
+}
+
+// insertCCSessionStart writes a SessionStart event to tma1_hook_events for Claude Code sessions.
+// This aligns the CC watcher with Codex/OpenClaw parsers, ensuring the source filter works
+// even if CC HTTP hooks are not configured.
+func (w *Watcher) insertCCSessionStart(sessionID, cwd string) {
+	msTs := time.Now().UnixMilli()
+	for {
+		prev := lastInsertTS.Load()
+		next := msTs
+		if next <= prev {
+			next = prev + 1
+		}
+		if lastInsertTS.CompareAndSwap(prev, next) {
+			msTs = next
+			break
+		}
+	}
+
+	sql := fmt.Sprintf(
+		"INSERT INTO tma1_hook_events "+
+			"(ts, session_id, event_type, agent_source, tool_name, tool_input, tool_result, "+
+			"tool_use_id, agent_id, agent_type, notification_type, \"message\", cwd, transcript_path, conversation_id) "+
+			"VALUES (%d, '%s', 'SessionStart', 'claude_code', '', '', '', '', '', '', '', '', '%s', '', '')",
+		msTs,
+		escapeSQLString(sessionID),
+		escapeSQLString(truncate(cwd, 512)),
+	)
+	go func() {
+		insertSem <- struct{}{}
+		defer func() { <-insertSem }()
+		w.execSQL(sql)
+	}()
 }

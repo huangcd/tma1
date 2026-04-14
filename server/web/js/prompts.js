@@ -30,7 +30,21 @@ function pr_reload() {
   prPage = 0;
   prExpandedIdx = -1;
   pr_loadCards().then(function(ok) {
-    if (!ok) return;
+    if (!ok) {
+      // Clear KPI cards and content areas when no data matches the filter.
+      ['pr-val-prompts', 'pr-val-score', 'pr-val-turns', 'pr-val-cost'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = '\u2014';
+      });
+      var empty = '<div class="chart-empty">' + t('empty.no_data') + '</div>';
+      ['pr-chart-distribution', 'pr-chart-trend', 'pr-chart-suggestions', 'pr-chart-dimensions', 'pr-prompt-list', 'pr-pattern-content'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = empty;
+      });
+      var pg = document.getElementById('pr-pagination');
+      if (pg) pg.innerHTML = '';
+      return;
+    }
     pr_loadData().then(function() {
       pr_loadOverview();
       pr_loadPrompts();
