@@ -30,8 +30,9 @@ async function pr_sourceSessionIDs() {
   if (prSourceCache.range === cacheKey) return prSourceCache.ids;
 
   var res = await query(
-    "SELECT DISTINCT session_id FROM tma1_hook_events WHERE agent_source = '" +
-    escapeSQLString(src) + "' AND ts > NOW() - INTERVAL '" + iv + "' LIMIT 500"
+    "SELECT session_id FROM tma1_hook_events WHERE agent_source = '" +
+    escapeSQLString(src) + "' AND ts > NOW() - INTERVAL '" + iv +
+    "' GROUP BY session_id ORDER BY MAX(ts) DESC LIMIT 500"
   );
   var r = rowsToObjects(res);
   if (!r || r.length === 0) {
@@ -43,7 +44,7 @@ async function pr_sourceSessionIDs() {
   return ids;
 }
 
-// prCachedSourceIDs is set by pr_reload() before any queries run.
+// prCachedSourceIDs is populated in pr_loadCards() before source-filtered queries run.
 var prCachedSourceIDs = null; // null = "All", '' = no match, 'id,...' = filter list
 
 function pr_sourceSQL() {
@@ -379,9 +380,9 @@ var prDataGeneration = 0; // incremented on each pr_loadData(), used as AI insig
 async function pr_loadCards() {
   prDataCache = null; // invalidate on every cards reload (refresh / time range change)
   prPromptData = [];  // force pr_loadData() re-fetch (don't let AI Insights use stale data)
-  prCachedSourceIDs = await pr_sourceSessionIDs();
   var iv = intervalSQL();
   try {
+    prCachedSourceIDs = await pr_sourceSessionIDs();
     var res = await query(
       "SELECT COUNT(*) AS total_prompts, COUNT(DISTINCT session_id) AS sessions " +
       "FROM tma1_messages WHERE message_type = 'user' AND ts > NOW() - INTERVAL '" + iv + "'" + pr_sourceSQL()
