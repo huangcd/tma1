@@ -47,7 +47,7 @@ export const en: T = {
   ],
   features: {
     kicker: 'Features', title: 'Observability without the overhead',
-    desc: 'Six views for Claude Code, Codex, OpenClaw, OTel GenAI, Sessions, and Prompts. The dashboard picks the right one from your data. No Grafana, no cloud, no YAML.',
+    desc: 'Seven views for Claude Code, Codex, Copilot CLI, OpenClaw, OTel GenAI, Sessions, and Prompts. The dashboard picks the right one from your data. No Grafana, no cloud, no YAML.',
     cards: [
       { num: '01', title: 'Cost breakdown', desc: 'Which model costs the most? Which conversation burned through your budget? Token counts and estimated cost per model, plus burn-rate over time and cache hit ratios.' },
       { num: '02', title: 'Anomaly detection', desc: 'An agent stuck in a retry loop can burn hundreds of dollars. Each agent view has an Anomalies tab. Click any flagged request to jump straight into that session and see what went wrong.' },
@@ -62,7 +62,7 @@ export const en: T = {
     desc: 'Paste the onboarding instruction into your agent and it handles the rest. Or do it yourself:',
     steps: [
       { num: '[1]', title: 'Install', desc: 'One command. Downloads everything into <code>~/.tma1/</code>. No Docker, no system packages.' },
-      { num: '[2]', title: 'Configure your agent', desc: 'Point the OTel endpoint to <code>http://localhost:14318/v1/otlp</code>. Works with Claude Code, Codex, OpenClaw, or any OTel SDK.' },
+      { num: '[2]', title: 'Configure your agent', desc: 'Point the OTel endpoint to <code>http://localhost:14318/v1/otlp</code>. Works with Claude Code, Codex, OpenClaw, or any OTel SDK. GitHub Copilot CLI needs no config \u2014 TMA1 auto-discovers its session logs.' },
       { num: '[3]', title: 'Open the dashboard', desc: 'Browse to <code>localhost:14318</code>. Traces show up seconds after your agent\u2019s next LLM call.' },
     ],
   },
@@ -81,7 +81,7 @@ export const en: T = {
   faq: {
     kicker: 'FAQ', title: 'Common questions',
     items: [
-      { q: 'Which agents are supported?', a: 'Any agent that emits OpenTelemetry data. Claude Code sends metrics and logs. Codex sends logs and metrics, and session JSONL is auto-parsed for conversation replay. OpenClaw sends traces and metrics, and session JSONL is auto-parsed for conversation replay. Any OTel SDK app with GenAI semantic conventions works out of the box. The dashboard auto-detects the data source and shows the right view.' },
+      { q: 'Which agents are supported?', a: 'Any agent that emits OpenTelemetry data, plus a few via JSONL auto-discovery. Claude Code sends metrics and logs. Codex sends logs and metrics, and session JSONL is auto-parsed for conversation replay. GitHub Copilot CLI is zero-config: its session JSONL at <code>~/.copilot/session-state/</code> is auto-discovered. OpenClaw sends traces and metrics, and session JSONL is auto-parsed for conversation replay. Any OTel SDK app with GenAI semantic conventions works out of the box. The dashboard auto-detects the data source and shows the right view.' },
       { q: 'Can I query the data with SQL?', a: 'Yes. Run <code>mysql -h 127.0.0.1 -P 14002</code> to connect to the local SQL endpoint, or open <code><a href="http://localhost:14000/dashboard/">localhost:14000/dashboard/</a></code> for the built-in query UI. Traces are in <code>opentelemetry_traces</code>, logs in <code>opentelemetry_logs</code>, session data in <code>tma1_hook_events</code> and <code>tma1_messages</code>, and OTel metrics get auto-created tables.' },
       { q: 'How much disk space does it use?', a: 'It depends on traffic and conversation length. A typical setup uses a few hundred MB per month.' },
     ],
@@ -114,7 +114,7 @@ export const zh: T = {
   ],
   features: {
     kicker: '\u529f\u80fd', title: '\u8f7b\u91cf\u53ef\u89c2\u6d4b',
-    desc: 'Claude Code、Codex、OpenClaw、OTel GenAI、Sessions、Prompts 六个视图，根据数据自动切换。不用装 Grafana，不用云服务，不用写 YAML。',
+    desc: 'Claude Code、Codex、Copilot CLI、OpenClaw、OTel GenAI、Sessions、Prompts 七个视图，根据数据自动切换。不用装 Grafana，不用云服务，不用写 YAML。',
     cards: [
       { num: '01', title: '\u8d39\u7528\u660e\u7ec6', desc: '\u54ea\u4e2a\u6a21\u578b\u6700\u8d35\uff1f\u54ea\u4e2a\u5bf9\u8bdd\u628a\u9884\u7b97\u70e7\u5149\u4e86\uff1f\u6309\u6a21\u578b\u8ffd\u8e2a token \u548c\u8d39\u7528\uff0c\u80fd\u770b burn rate \u8d8b\u52bf\u548c\u7f13\u5b58\u547d\u4e2d\u7387\u3002' },
       { num: '02', title: '\u5f02\u5e38\u68c0\u6d4b', desc: 'Agent \u5361\u5728\u91cd\u8bd5\u5faa\u73af\u91cc\u53ef\u4ee5\u70e7\u6389\u51e0\u767e\u7f8e\u5143\u3002\u6bcf\u4e2a agent \u89c6\u56fe\u6709 Anomalies \u6807\u7b7e\u9875\uff0c\u70b9\u51fb\u4efb\u4f55\u4e00\u6761\u5f02\u5e38\u76f4\u63a5\u8df3\u5230\u90a3\u4e2a session\uff0c\u770b\u770b\u5230\u5e95\u54ea\u513f\u51fa\u4e86\u95ee\u9898\u3002' },
@@ -129,7 +129,7 @@ export const zh: T = {
     desc: '\u628a\u63a5\u5165\u6307\u4ee4\u7c98\u8d34\u7ed9\u4f60\u7684 agent\uff0c\u5b83\u4f1a\u81ea\u52a8\u641e\u5b9a\u3002\u6216\u8005\u624b\u52a8\u6765\uff1a',
     steps: [
       { num: '[1]', title: '\u5b89\u88c5', desc: '\u4e00\u6761\u547d\u4ee4\uff0c\u6240\u6709\u6587\u4ef6\u88c5\u8fdb <code>~/.tma1/</code>\u3002\u4e0d\u9700\u8981 Docker\uff0c\u4e0d\u9700\u8981\u88c5\u522b\u7684\u3002' },
-      { num: '[2]', title: '\u914d\u7f6e\u4f60\u7684 agent', desc: '\u5c06 OTel endpoint \u6307\u5411 <code>http://localhost:14318/v1/otlp</code>\u3002\u652f\u6301 Claude Code\u3001Codex\u3001OpenClaw \u6216\u4efb\u4f55 OTel SDK\u3002' },
+      { num: '[2]', title: '\u914d\u7f6e\u4f60\u7684 agent', desc: '\u5c06 OTel endpoint \u6307\u5411 <code>http://localhost:14318/v1/otlp</code>\u3002\u652f\u6301 Claude Code\u3001Codex\u3001OpenClaw \u6216\u4efb\u4f55 OTel SDK\u3002GitHub Copilot CLI \u96f6\u914d\u7f6e\u2014\u2014TMA1 \u4f1a\u81ea\u52a8\u53d1\u73b0\u5b83\u7684 session \u65e5\u5fd7\u3002' },
       { num: '[3]', title: '\u6253\u5f00 dashboard', desc: '\u6d4f\u89c8\u5668\u6253\u5f00 <code>localhost:14318</code>\u3002agent \u4e0b\u6b21\u8c03 LLM \u540e\u51e0\u79d2\u5c31\u80fd\u770b\u5230 trace\u3002' },
     ],
   },
@@ -148,7 +148,7 @@ export const zh: T = {
   faq: {
     kicker: 'FAQ', title: '\u5e38\u89c1\u95ee\u9898',
     items: [
-      { q: '\u652f\u6301\u54ea\u4e9b agent\uff1f', a: '\u4efb\u4f55\u53d1\u9001 OpenTelemetry \u6570\u636e\u7684 agent\u3002Claude Code \u53d1\u9001 metrics \u548c logs\uff0cCodex \u53d1\u9001 logs \u548c metrics\uff0c\u4f1a\u8bdd JSONL \u81ea\u52a8\u89e3\u6790\u7528\u4e8e\u5bf9\u8bdd\u56de\u653e\uff0cOpenClaw \u53d1\u9001 traces \u548c metrics\uff0c\u4f1a\u8bdd JSONL \u81ea\u52a8\u89e3\u6790\u7528\u4e8e\u5bf9\u8bdd\u56de\u653e\uff0c\u4efb\u4f55 GenAI \u8bed\u4e49\u89c4\u8303\u7684 OTel SDK \u5e94\u7528\u4e5f\u652f\u6301\u3002Dashboard \u81ea\u52a8\u68c0\u6d4b\u6570\u636e\u6e90\u5e76\u5c55\u793a\u5bf9\u5e94\u89c6\u56fe\u3002' },
+      { q: '\u652f\u6301\u54ea\u4e9b agent\uff1f', a: '\u4efb\u4f55\u53d1\u9001 OpenTelemetry \u6570\u636e\u7684 agent\uff0c\u4ee5\u53ca\u901a\u8fc7 JSONL \u81ea\u52a8\u53d1\u73b0\u7684\u51e0\u4e2a agent\u3002Claude Code \u53d1\u9001 metrics \u548c logs\uff1bCodex \u53d1\u9001 logs \u548c metrics\uff0c\u4f1a\u8bdd JSONL \u81ea\u52a8\u89e3\u6790\u7528\u4e8e\u5bf9\u8bdd\u56de\u653e\u3002GitHub Copilot CLI \u96f6\u914d\u7f6e\uff1aTMA1 \u81ea\u52a8\u53d1\u73b0\u5e76\u89e3\u6790 <code>~/.copilot/session-state/</code> \u4e0b\u7684 session JSONL\u3002OpenClaw \u53d1\u9001 traces \u548c metrics\uff0c\u4f1a\u8bdd JSONL \u4e5f\u4f1a\u81ea\u52a8\u89e3\u6790\u3002\u4efb\u4f55\u9075\u5faa GenAI \u8bed\u4e49\u89c4\u8303\u7684 OTel SDK \u5e94\u7528\u5f00\u7bb1\u5373\u7528\u3002Dashboard \u6839\u636e\u6570\u636e\u81ea\u52a8\u5207\u6362\u5230\u5bf9\u5e94\u89c6\u56fe\u3002' },
       { q: '\u80fd\u76f4\u63a5\u7528 SQL \u67e5\u5417\uff1f', a: '\u80fd\u3002\u8fd0\u884c <code>mysql -h 127.0.0.1 -P 14002</code> \u8fde\u63a5\u672c\u5730 SQL \u7aef\u53e3\uff0c\u6216\u6253\u5f00 <code><a href="http://localhost:14000/dashboard/">localhost:14000/dashboard/</a></code> \u4f7f\u7528\u5185\u7f6e\u67e5\u8be2\u754c\u9762\u3002Traces \u5728 <code>opentelemetry_traces</code>\uff0clogs \u5728 <code>opentelemetry_logs</code>\uff0csession \u6570\u636e\u5728 <code>tma1_hook_events</code> \u548c <code>tma1_messages</code>\uff0cOTel metrics \u81ea\u52a8\u5efa\u8868\u3002' },
       { q: '\u5927\u6982\u5360\u591a\u5c11\u78c1\u76d8\uff1f', a: '\u53d6\u51b3\u4e8e agent \u6d41\u91cf\u548c\u5bf9\u8bdd\u957f\u5ea6\u3002\u5e38\u89c1\u573a\u666f\u4e0b\uff0c\u6bcf\u6708\u5927\u7ea6\u51e0\u767e MB\u3002' },
     ],
@@ -181,7 +181,7 @@ export const es: T = {
   ],
   features: {
     kicker: 'Funcionalidades', title: 'Observabilidad sin complicaciones',
-    desc: 'Seis vistas para Claude Code, Codex, OpenClaw, OTel GenAI, Sessions y Prompts. El dashboard elige la correcta según tus datos. Sin Grafana, sin nube, sin YAML.',
+    desc: 'Siete vistas para Claude Code, Codex, Copilot CLI, OpenClaw, OTel GenAI, Sessions y Prompts. El dashboard elige la correcta según tus datos. Sin Grafana, sin nube, sin YAML.',
     cards: [
       { num: '01', title: 'Desglose de costos', desc: '\u00bfQu\u00e9 modelo cuesta m\u00e1s? \u00bfQu\u00e9 conversaci\u00f3n quem\u00f3 tu presupuesto? Tokens y costo estimado por modelo, m\u00e1s burn rate y ratios de cache hit.' },
       { num: '02', title: 'Detecci\u00f3n de anomal\u00edas', desc: 'Un agente en un loop de reintentos puede quemar cientos de d\u00f3lares. Cada vista de agente tiene una pesta\u00f1a Anomalies. Hac\u00e9 clic en cualquiera para saltar a esa sesi\u00f3n y ver qu\u00e9 sali\u00f3 mal.' },
@@ -196,7 +196,7 @@ export const es: T = {
     desc: 'Peg\u00e1 la instrucci\u00f3n de onboarding en tu agente y se encarga del resto. O hacelo vos:',
     steps: [
       { num: '[1]', title: 'Instalar', desc: 'Un comando. Todo se descarga en <code>~/.tma1/</code>. Sin Docker, sin paquetes del sistema.' },
-      { num: '[2]', title: 'Configurar tu agente', desc: 'Apunt\u00e1 el endpoint OTel a <code>http://localhost:14318/v1/otlp</code>. Funciona con Claude Code, Codex, OpenClaw o cualquier SDK OTel.' },
+      { num: '[2]', title: 'Configurar tu agente', desc: 'Apunt\u00e1 el endpoint OTel a <code>http://localhost:14318/v1/otlp</code>. Funciona con Claude Code, Codex, OpenClaw o cualquier SDK OTel. GitHub Copilot CLI no necesita configuraci\u00f3n \u2014 TMA1 detecta sus logs de sesi\u00f3n autom\u00e1ticamente.' },
       { num: '[3]', title: 'Abrir el dashboard', desc: 'Abr\u00ed <code>localhost:14318</code> en el navegador. Los traces aparecen segundos despu\u00e9s de la siguiente llamada LLM.' },
     ],
   },
@@ -215,7 +215,7 @@ export const es: T = {
   faq: {
     kicker: 'FAQ', title: 'Preguntas frecuentes',
     items: [
-      { q: '\u00bfQu\u00e9 agentes soporta?', a: 'Cualquier agente que emita datos OpenTelemetry. Claude Code env\u00eda m\u00e9tricas y logs. Codex env\u00eda logs y m\u00e9tricas, y los archivos JSONL de sesi\u00f3n se analizan autom\u00e1ticamente para la reproducci\u00f3n de conversaciones. OpenClaw env\u00eda traces y m\u00e9tricas, y los archivos JSONL de sesi\u00f3n se analizan autom\u00e1ticamente para la reproducci\u00f3n de conversaciones. Cualquier SDK OTel con convenciones sem\u00e1nticas GenAI funciona de entrada. El dashboard detecta autom\u00e1ticamente la fuente de datos y muestra la vista correspondiente.' },
+      { q: '\u00bfQu\u00e9 agentes soporta?', a: 'Cualquier agente que emita datos OpenTelemetry, m\u00e1s algunos v\u00eda auto-descubrimiento de JSONL. Claude Code env\u00eda m\u00e9tricas y logs. Codex env\u00eda logs y m\u00e9tricas, y los archivos JSONL de sesi\u00f3n se analizan autom\u00e1ticamente para la reproducci\u00f3n de conversaciones. GitHub Copilot CLI no requiere configuraci\u00f3n: sus logs de sesi\u00f3n en <code>~/.copilot/session-state/</code> se detectan autom\u00e1ticamente. OpenClaw env\u00eda traces y m\u00e9tricas, y los archivos JSONL de sesi\u00f3n se analizan autom\u00e1ticamente. Cualquier SDK OTel con convenciones sem\u00e1nticas GenAI funciona de entrada. El dashboard detecta autom\u00e1ticamente la fuente de datos y muestra la vista correspondiente.' },
       { q: '\u00bfSe pueden consultar los datos con SQL?', a: 'S\u00ed. Ejecut\u00e1 <code>mysql -h 127.0.0.1 -P 14002</code> para conectarte al endpoint SQL local, o abr\u00ed <code><a href="http://localhost:14000/dashboard/">localhost:14000/dashboard/</a></code> para la interfaz de consultas. Traces en <code>opentelemetry_traces</code>, logs en <code>opentelemetry_logs</code>, datos de sesi\u00f3n en <code>tma1_hook_events</code> y <code>tma1_messages</code>, y las m\u00e9tricas OTel crean tablas autom\u00e1ticamente.' },
       { q: '\u00bfCu\u00e1nto disco ocupa?', a: 'Depende de la actividad del agente y del largo de las conversaciones. En un uso t\u00edpico, unos cientos de MB por mes.' },
     ],

@@ -54,7 +54,7 @@ metadata:
 TMA1 gives you local-first observability for your AI agent.
 Token usage, cost, latency — stored locally, queryable with plain SQL.
 No cloud account. No Docker. No Grafana setup.
-Works with Claude Code, Codex, OpenClaw, or any OTel-enabled agent.
+Works with Claude Code, Codex, GitHub Copilot CLI, OpenClaw, or any OTel-enabled agent.
 
 The name comes from TMA-1 (Tycho Magnetic Anomaly-1) in *2001: A Space Odyssey*:
 the monolith buried on the moon, silently recording everything until you dig it out.
@@ -82,6 +82,7 @@ TMA1 captures different data depending on the agent:
 | --- | --- | --- |
 | **Claude Code** | OTel metrics + logs + traces + hooks | Token usage, cost, active time, tool decisions, API requests, TTFT, tool timing, permission waits, user prompts, session conversations |
 | **Codex** | OTel logs + metrics + session JSONL | User prompts, LLM calls, tool executions, token usage, session conversations |
+| **GitHub Copilot CLI** | Session JSONL (auto-discovered, zero config) | Session lifecycle, user/assistant messages, tool calls + failures, subagent lifecycle, skill invocations, output tokens per response |
 | **OpenClaw** | OTel traces + metrics + session JSONL | LLM calls (model, tokens, cache), messages, webhooks, sessions, queue depth, session conversations |
 | **Other (GenAI SDK)** | OTel traces + logs | Token usage, cost, latency, conversation replay, prompt injection detection (GenAI semantic conventions) |
 
@@ -282,6 +283,12 @@ protocol = "binary"
 Codex uses separate exporters for logs, traces, and metrics. Restart Codex after config changes.
 
 Codex session logs are automatically stored at `~/.codex/sessions/` in JSONL format. TMA1 can parse these for conversation replay in the Sessions view — no additional configuration needed beyond OTel setup above.
+
+#### GitHub Copilot CLI
+
+**Zero config.** TMA1 auto-discovers Copilot CLI session logs at `~/.copilot/session-state/<sessionId>/events.jsonl` and parses them into the Sessions and Prompts views. Just run `tma1-server` and use Copilot CLI as usual. No environment variables, no config file edits, no restart needed.
+
+What gets captured: session start/end, user prompts, assistant messages (content + reasoning → thinking), tool calls with success/failure, subagent lifecycle (with model / tokens / duration metadata), and skill invocations.
 
 #### Any OTel SDK
 

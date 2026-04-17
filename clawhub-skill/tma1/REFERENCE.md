@@ -23,6 +23,8 @@ Check which tables exist:
 - `codex_turn_token_usage_sum` → Codex metrics
 - `opentelemetry_traces` → traces from Codex, OpenClaw, or GenAI SDK
 - `openclaw_tokens_total` → OpenClaw metrics
+- `tma1_hook_events` → session events from Claude Code hooks + Codex / Copilot CLI / OpenClaw JSONL parsers (filter via `agent_source`)
+- `tma1_messages` → conversation content for all agents (session_id prefixes: `cp:` Copilot CLI, `oc:` OpenClaw; Claude Code and Codex use raw session IDs)
 
 ---
 
@@ -171,6 +173,61 @@ FROM codex_turn_token_usage_sum
 WHERE greptime_timestamp > NOW() - INTERVAL '1 day'
 GROUP BY model, token_type
 ORDER BY tokens DESC
+```
+
+---
+
+### Copilot CLI Queries (JSONL auto-discovery, no OTel)
+
+Copilot CLI data lives entirely in `tma1_hook_events` (agent_source = `copilot_cli`) and `tma1_messages` (session_id starts with `cp:`).
+
+**Recent sessions with tool / message counts:**
+```sql
+SELECT session_id,
+       MIN(ts) AS started,
+       MAX(ts) AS last_event,
+       SUM(CASE WHEN event_type = 'PreToolUse' THEN 1 ELSE 0 END) AS tool_calls,
+       SUM(CASE WHEN event_type = 'PostToolUseFailure' THEN 1 ELSE 0 END) AS tool_failures
+FROM tma1_hook_events
+WHERE agent_source = 'copilot_cli'
+  AND ts > NOW() - INTERVAL '1 day'
+GROUP BY session_id
+ORDER BY last_event DESC
+LIMIT 20
+```
+
+**Output tokens by model:**
+```sql
+SELECT model, SUM(COALESCE(output_tokens, 0)) AS output_tokens, COUNT(*) AS messages
+FROM tma1_messages
+WHERE session_id LIKE 'cp:%'
+  AND model != ''
+  AND ts > NOW() - INTERVAL '1 day'
+GROUP BY model
+ORDER BY output_tokens DESC
+```
+
+**Tool call distribution:**
+```sql
+SELECT tool_name, COUNT(*) AS calls
+FROM tma1_hook_events
+WHERE agent_source = 'copilot_cli'
+  AND event_type = 'PreToolUse'
+  AND tool_name != ''
+  AND ts > NOW() - INTERVAL '1 day'
+GROUP BY tool_name
+ORDER BY calls DESC
+LIMIT 15
+```
+
+**Subagent runs with metadata (model, tokens, duration):**
+```sql
+SELECT ts, agent_type, metadata
+FROM tma1_hook_events
+WHERE agent_source = 'copilot_cli'
+  AND event_type = 'SubagentStop'
+ORDER BY ts DESC
+LIMIT 20
 ```
 
 ---

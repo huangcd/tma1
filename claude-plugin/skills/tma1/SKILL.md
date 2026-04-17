@@ -1,6 +1,6 @@
 ---
 name: tma1
-description: "Query TMA1 observability data. Use when the user asks: how much did I spend, token usage, what has my agent been doing, agent cost, show me traces, show me events, check for errors, model comparison, tool usage."
+description: "Query TMA1 observability data (Claude Code, Codex, GitHub Copilot CLI, OpenClaw, any OTel SDK). Use when the user asks: how much did I spend, token usage, what has my agent been doing, agent cost, show me traces, show me events, check for errors, model comparison, tool usage."
 context: fork
 allowed-tools: Bash
 ---
@@ -9,9 +9,10 @@ allowed-tools: Bash
 
 You are helping the user query their local TMA1 observability data.
 
-TMA1 stores data from four kinds of sources:
+TMA1 stores data from five kinds of sources:
 - **Claude Code** sends OTel **metrics** (cumulative counters) + **logs** (event stream) + hooks + JSONL transcripts
 - **Codex** sends OTel **logs** + **metrics** + session JSONL (auto-parsed from `~/.codex/sessions/`)
+- **GitHub Copilot CLI** — session JSONL only (auto-parsed from `~/.copilot/session-state/<sessionId>/events.jsonl`, no OTel). Data lives in `tma1_hook_events` (`agent_source='copilot_cli'`) and `tma1_messages` (`session_id LIKE 'cp:%'`).
 - **OpenClaw** sends OTel **traces** (spans with openclaw.* attributes) + **metrics** (openclaw_* tables) + session JSONL (auto-parsed from `~/.openclaw/agents/*/sessions/`)
 - **Other agents** (standard GenAI SDK) send OTel **traces** (spans with gen_ai.* semantic conventions)
 
@@ -37,6 +38,7 @@ Check which tables exist to determine what queries to use:
 - If `openclaw_tokens_total` exists → use OpenClaw queries
 - If `opentelemetry_traces` exists → use traces-based queries (check column names to distinguish OpenClaw vs GenAI)
 - If `opentelemetry_logs` exists → use logs queries for event details
+- If `tma1_hook_events` has rows with `agent_source = 'copilot_cli'` → use Copilot CLI queries
 - If `tma1_hook_events` or `tma1_messages` exists → use session/conversation queries
 
 ## Step 3: Choose and run query
@@ -302,6 +304,81 @@ WHERE s.greptime_timestamp > NOW() - INTERVAL '1 day'
 GROUP BY s.model
 ORDER BY avg_ttft_ms DESC
 ```
+
+---
+
+## Copilot CLI Queries (JSONL auto-discovery, no OTel)
+
+Copilot CLI has no OTel exporter. All data comes from `~/.copilot/session-state/*/events.jsonl` and lands in:
+- `tma1_hook_events` with `agent_source = 'copilot_cli'` — session lifecycle, tool calls, subagent lifecycle
+- `tma1_messages` with `session_id LIKE 'cp:%'` — user / assistant / thinking messages
+
+### Recent sessions
+
+```sql
+SELECT session_id,
+       MIN(ts) AS started,
+       MAX(ts) AS last_event,
+       SUM(CASE WHEN event_type = 'PreToolUse' THEN 1 ELSE 0 END) AS tool_calls,
+       SUM(CASE WHEN event_type = 'PostToolUseFailure' THEN 1 ELSE 0 END) AS tool_failures
+FROM tma1_hook_events
+WHERE agent_source = 'copilot_cli'
+  AND ts > NOW() - INTERVAL '1 day'
+GROUP BY session_id
+ORDER BY last_event DESC
+LIMIT 20
+```
+
+### Output tokens by model
+
+```sql
+SELECT model,
+       SUM(COALESCE(output_tokens, 0)) AS output_tokens,
+       COUNT(*) AS messages
+FROM tma1_messages
+WHERE session_id LIKE 'cp:%'
+  AND model != ''
+  AND ts > NOW() - INTERVAL '1 day'
+GROUP BY model
+ORDER BY output_tokens DESC
+```
+
+### Tool usage
+
+```sql
+SELECT tool_name,
+       COUNT(*) AS calls
+FROM tma1_hook_events
+WHERE agent_source = 'copilot_cli'
+  AND event_type = 'PreToolUse'
+  AND tool_name != ''
+  AND ts > NOW() - INTERVAL '1 day'
+GROUP BY tool_name
+ORDER BY calls DESC
+LIMIT 15
+```
+
+### Subagent runs (model, tokens, duration in metadata)
+
+```sql
+SELECT ts, agent_type, metadata
+FROM tma1_hook_events
+WHERE agent_source = 'copilot_cli'
+  AND event_type = 'SubagentStop'
+ORDER BY ts DESC
+LIMIT 20
+```
+
+### Conversation for a session
+
+```sql
+SELECT ts, message_type, "role", model, content
+FROM tma1_messages
+WHERE session_id = 'cp:<sessionId>'
+ORDER BY ts ASC
+```
+
+Replace `<sessionId>` with the on-disk directory name from `~/.copilot/session-state/` (the `cp:` prefix is the DB namespace).
 
 ---
 
