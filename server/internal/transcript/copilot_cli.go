@@ -9,16 +9,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	copilotCLIScanInterval   = 10 * time.Second
-	copilotCLIActiveAge      = 10 * time.Minute
-	copilotCLIAgentSource    = "copilot_cli"
-	copilotCLISessionPfx     = "cp:"
+	copilotCLIScanInterval  = 10 * time.Second
+	copilotCLIActiveAge     = 10 * time.Minute
+	copilotCLIAgentSource   = "copilot_cli"
+	copilotCLISessionPrefix = "cp:"
 )
 
 // copilotCLIIngestedDirs is the set of on-disk session directory names whose
@@ -43,13 +44,6 @@ func copilotCLIDirIngested(dirName string) bool {
 	_, ok := copilotCLIIngestedDirs[dirName]
 	copilotCLIIngestedDirsMu.RUnlock()
 	return ok
-}
-
-// escapeSQLStringFull escapes single quotes for SQL string literals.
-// GreptimeDB's /v1/sql API does NOT interpret backslash escapes,
-// so only single quotes need escaping.
-func escapeSQLStringFull(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
 }
 
 // StartCopilotCLIScanner periodically scans ~/.copilot/session-state/ for active
@@ -98,7 +92,7 @@ func (w *Watcher) scanCopilotCLISessionsWithAge(baseDir string, activeAge time.D
 	w.mu.Lock()
 	var stoppedCount, activeCount int
 	for key, sw := range w.sessions {
-		if strings.HasPrefix(key, copilotCLISessionPfx) {
+		if strings.HasPrefix(key, copilotCLISessionPrefix) {
 			if sw.stopped {
 				stoppedCount++
 			} else {
@@ -108,7 +102,7 @@ func (w *Watcher) scanCopilotCLISessionsWithAge(baseDir string, activeAge time.D
 	}
 	if stoppedCount > 50 {
 		for key, sw := range w.sessions {
-			if sw.stopped && strings.HasPrefix(key, copilotCLISessionPfx) {
+			if sw.stopped && strings.HasPrefix(key, copilotCLISessionPrefix) {
 				delete(w.sessions, key)
 			}
 		}
@@ -147,16 +141,12 @@ func (w *Watcher) scanCopilotCLISessionsWithAge(baseDir string, activeAge time.D
 	}
 
 	// Sort newest first.
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].mod.After(candidates[i].mod) {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].mod.After(candidates[j].mod)
+	})
 
 	for _, c := range candidates {
-		watcherKey := copilotCLISessionPfx + c.id
+		watcherKey := copilotCLISessionPrefix + c.id
 		w.mu.Lock()
 		existing, ok := w.sessions[watcherKey]
 		alreadyWatching := ok && !existing.stopped
@@ -185,9 +175,8 @@ func (w *Watcher) scanCopilotCLISessionsWithAge(baseDir string, activeAge time.D
 
 // loadCopilotCLIIngestedDirs queries GreptimeDB for all session_ids already
 // ingested from Copilot CLI and populates copilotCLIIngestedDirs. Session IDs
-// in the DB are namespaced as "cp:<sessionId>" (with optional "#N" suffix for
-// split multi-session files); the directory name is just "<sessionId>" before
-// the first split, so we strip both the prefix and any split suffix.
+// in the DB are namespaced as "cp:<sessionId>" where <sessionId> matches the
+// on-disk session directory name — we rely on that invariant for restart dedup.
 func (w *Watcher) loadCopilotCLIIngestedDirs() {
 	form := url.Values{}
 	form.Set("sql", "SELECT DISTINCT session_id FROM tma1_hook_events WHERE agent_source = 'copilot_cli'")
@@ -235,11 +224,7 @@ func (w *Watcher) loadCopilotCLIIngestedDirs() {
 		if err := json.Unmarshal(row[0], &sid); err != nil {
 			continue
 		}
-		sid = strings.TrimPrefix(sid, copilotCLISessionPfx)
-		// Strip "#N" split suffix to recover the on-disk directory name.
-		if idx := strings.Index(sid, "#"); idx > 0 {
-			sid = sid[:idx]
-		}
+		sid = strings.TrimPrefix(sid, copilotCLISessionPrefix)
 		if sid != "" {
 			copilotCLIIngestedDirs[sid] = struct{}{}
 		}
@@ -357,11 +342,11 @@ type copilotCLIEvent struct {
 
 // copilotCLIContext tracks per-file state during parsing.
 type copilotCLIContext struct {
-	sessionID  string
-	model      string // current model (updated by session.start and session.model_change)
-	cwd        string
-	live       bool  // true after initial backfill completes
-	lastTsMs   int64 // per-session monotonic timestamp (avoids global lastInsertTS collision)
+	sessionID string
+	model     string // current model (updated by session.start and session.model_change)
+	cwd       string
+	live      bool  // true after initial backfill completes
+	lastTsMs  int64 // per-session monotonic timestamp (avoids global lastInsertTS collision)
 }
 
 // parseCopilotCLITimestamp handles both RFC3339 and Copilot CLI's MM/DD/YYYY HH:mm:ss format.
@@ -380,7 +365,7 @@ func parseCopilotCLITimestamp(s string) time.Time {
 
 // dbSessionID returns the namespaced session ID for database storage.
 func (c *copilotCLIContext) dbSessionID() string {
-	return copilotCLISessionPfx + c.sessionID
+	return copilotCLISessionPrefix + c.sessionID
 }
 
 // nextTsMs returns a monotonically increasing millisecond timestamp for this session.
@@ -408,18 +393,9 @@ func (w *Watcher) processCopilotCLILine(sessionID, line string, seen map[string]
 		seen[ev.ID] = struct{}{}
 	}
 
-	// Split on session.start: if the JSONL contains multiple logical sessions
-	// (appended across restarts), update fctx.sessionID to create separate DB sessions.
-	if ev.Type == "session.start" {
-		var startData struct {
-			SessionID string `json:"sessionId"`
-		}
-		if json.Unmarshal(ev.Data, &startData) == nil && startData.SessionID != "" && startData.SessionID != fctx.sessionID {
-			fctx.sessionID = startData.SessionID
-			fctx.model = ""
-			fctx.cwd = ""
-		}
-	}
+	// fctx.sessionID is pinned to the on-disk directory name. Even if session.start
+	// carries a different sessionId in its payload, we keep the directory name as the
+	// authoritative ID so that restart-dedup (loadCopilotCLIIngestedDirs) works.
 
 	ts := parseCopilotCLITimestamp(ev.Timestamp)
 	if ts.IsZero() {
@@ -449,8 +425,8 @@ func (w *Watcher) processCopilotCLILine(sessionID, line string, seen map[string]
 		w.handleCopilotCLISubagentComplete(ts, ev, fctx)
 	case "skill.invoked":
 		w.handleCopilotCLISkillInvoked(ts, ev, fctx)
-	// Skip: hook.start, hook.end, session.warning, system.notification,
-	// session.mode_changed, session.context_changed, assistant.turn_start, assistant.turn_end
+		// Skip: hook.start, hook.end, session.warning, system.notification,
+		// session.mode_changed, session.context_changed, assistant.turn_start, assistant.turn_end
 	}
 }
 
@@ -695,7 +671,7 @@ func (w *Watcher) insertCopilotCLIMessage(fctx *copilotCLIContext, ts time.Time,
 			escapeSQLString(fctx.dbSessionID()),
 			escapeSQLString(messageType),
 			escapeSQLString(role),
-			escapeSQLStringFull(truncate(content, maxContentLen)),
+			escapeSQLString(truncate(content, maxContentLen)),
 			escapeSQLString(model),
 			escapeSQLString(toolName),
 			escapeSQLString(toolUseID),
@@ -712,7 +688,7 @@ func (w *Watcher) insertCopilotCLIMessage(fctx *copilotCLIContext, ts time.Time,
 			escapeSQLString(fctx.dbSessionID()),
 			escapeSQLString(messageType),
 			escapeSQLString(role),
-			escapeSQLStringFull(truncate(content, maxContentLen)),
+			escapeSQLString(truncate(content, maxContentLen)),
 			escapeSQLString(model),
 			escapeSQLString(toolName),
 			escapeSQLString(toolUseID),
@@ -762,13 +738,13 @@ func (w *Watcher) insertCopilotCLIHookEventFull(ts time.Time, fctx *copilotCLICo
 		escapeSQLString(fctx.dbSessionID()),
 		escapeSQLString(eventType),
 		copilotCLIAgentSource,
-		escapeSQLStringFull(truncate(toolName, 256)),
-		escapeSQLStringFull(truncate(toolInput, maxToolInput)),
-		escapeSQLStringFull(truncate(toolResult, maxToolContent)),
+		escapeSQLString(truncate(toolName, 256)),
+		escapeSQLString(truncate(toolInput, maxToolInput)),
+		escapeSQLString(truncate(toolResult, maxToolContent)),
 		escapeSQLString(toolUseID),
 		escapeSQLString(agentID),
 		escapeSQLString(agentType),
-		escapeSQLStringFull(truncate(cwd, 512)),
+		escapeSQLString(truncate(cwd, 512)),
 		escapeSQLString(fctx.dbSessionID()),
 		escapeSQLString(metadataJSON), // json.Marshal already escapes backslashes
 	)

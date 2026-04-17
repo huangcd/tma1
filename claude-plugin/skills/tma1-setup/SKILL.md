@@ -1,6 +1,6 @@
 ---
 name: tma1-setup
-description: "Install and configure TMA1 local observability. Use when the user says: install tma1, setup observability, monitor my agent, track token usage, set up telemetry."
+description: "Install and configure TMA1 local observability (Claude Code, Codex, GitHub Copilot CLI, OpenClaw, any OTel SDK). Use when the user says: install tma1, setup observability, monitor my agent, track token usage, set up telemetry."
 context: fork
 allowed-tools: Bash
 ---
@@ -181,6 +181,8 @@ openclaw gateway restart
 
 Session transcripts at `~/.openclaw/agents/*/sessions/*.jsonl` are auto-discovered — no extra setup needed for Sessions and Prompts views.
 
+**GitHub Copilot CLI** — zero config. TMA1 auto-discovers session logs at `~/.copilot/session-state/<sessionId>/events.jsonl`. Nothing to configure; just run `tma1-server` and use Copilot CLI normally. Sessions, tool calls (with failure detection), subagent lifecycle, and skill invocations all show up in the Copilot CLI dashboard view and the unified Sessions view.
+
 **Other OTel-compatible agents** (standard GenAI SDK) — typically export traces:
 ```bash
 # macOS / Linux
@@ -204,7 +206,7 @@ curl -s -X POST http://localhost:14318/api/query \
   -d '{"sql": "SHOW TABLES"}' 2>/dev/null | python3 -m json.tool
 ```
 
-If you see `opentelemetry_logs`, `opentelemetry_traces`, `openclaw_*`, `claude_code_*`, or `tma1_hook_events` tables, data is flowing.
+If you see `opentelemetry_logs`, `opentelemetry_traces`, `openclaw_*`, `claude_code_*`, `codex_*`, `tma1_hook_events`, or `tma1_messages` tables, data is flowing. For Copilot CLI specifically, check that `tma1_hook_events` has rows with `agent_source = 'copilot_cli'`.
 
 ## Handoff
 

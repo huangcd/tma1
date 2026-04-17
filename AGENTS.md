@@ -28,8 +28,8 @@ Tagline: *"Your agent runs. TMA1 remembers."*
 | `server/internal/greptimedb/` | Start, stop, health-check GreptimeDB process + Flow init |
 | `server/internal/handler/` | HTTP handlers: /health, /status, /api/query, /api/evaluate, /api/settings, /api/hooks, /api/hooks/stream (SSE), /v1/otlp/*, dashboard UI |
 | `server/internal/hooks/` | Hook script installer for Claude Code integration |
-| `server/internal/transcript/` | JSONL transcript watcher (Claude Code) + Codex session log parser + OpenClaw session log parser |
-| `server/web/` | Embedded dashboard (HTML + JS + CSS via embed.FS), 6 views: Claude Code, Codex, OpenClaw, OTel GenAI, Sessions, Prompts + Agent Canvas |
+| `server/internal/transcript/` | JSONL transcript watcher (Claude Code) + Codex / OpenClaw / Copilot CLI session log parsers |
+| `server/web/` | Embedded dashboard (HTML + JS + CSS via embed.FS), 7 views: Claude Code, Codex, Copilot CLI, OpenClaw, OTel GenAI, Sessions, Prompts + Agent Canvas |
 | `site/` | Astro landing page → GitHub Pages → tma1.ai |
 | `.claude-plugin/` | Claude Code Marketplace registration |
 | `claude-plugin/` | Claude Code plugin: skills for setup + inline queries |
@@ -38,10 +38,11 @@ Tagline: *"Your agent runs. TMA1 remembers."*
 ## Architecture
 
 ```
-Agent (Claude Code / Codex / OpenClaw / any GenAI app)
+Agent (Claude Code / Codex / Copilot CLI / OpenClaw / any GenAI app)
     │  OTLP/HTTP → http://localhost:14318/v1/otlp
     │  Hook events → http://localhost:14318/api/hooks (Claude Code)
-    │  JSONL transcripts → ~/.claude/projects/ (CC) / ~/.codex/sessions/ (Codex) / ~/.openclaw/agents/ (OpenClaw)
+    │  JSONL transcripts → ~/.claude/projects/ (CC) / ~/.codex/sessions/ (Codex) /
+    │                      ~/.copilot/session-state/ (Copilot CLI) / ~/.openclaw/agents/ (OpenClaw)
     ▼
 tma1-server  port 14318
     │  reverse-proxies OTLP to GreptimeDB
@@ -56,10 +57,11 @@ GreptimeDB  (managed by tma1-server)
 Browser dashboard (served by tma1-server)
     ├── Claude Code view: Overview, Tools, Cost, Anomalies, Traces, Sessions→ (from OTel metrics + logs + traces)
     ├── Codex view: Overview, Tools, Cost, Anomalies, Sessions→ (from OTel logs with scope_name codex_*)
+    ├── Copilot CLI view: Overview, Tools, Cost, Sessions→ (from ~/.copilot/session-state/*/events.jsonl)
     ├── OpenClaw view: Overview, Traces, Cost, Search (from openclaw.* trace attrs)
     ├── OTel GenAI view: Overview, Traces, Cost, Security, Search (from gen_ai.* trace attrs)
     ├── Sessions view: Session list, full-screen detail overlay (two-column: Insights + Timeline), file heatmap, agent hierarchy, waterfall, canvas animation
-    │   ├── CC/Codex "Sessions→" is a link that jumps to Sessions view with agent_source filter
+    │   ├── CC/Codex/Copilot CLI "Sessions→" is a link that jumps to Sessions view with agent_source filter
     │   ├── Replay mode: replay past sessions as agent orchestration animation
     │   └── Live mode: real-time SSE streaming of hook events → canvas visualization
     └── Prompts view: Prompt evaluation & improvement (heuristic scoring + optional LLM-as-judge)
@@ -70,11 +72,11 @@ Browser dashboard (served by tma1-server)
 
 OTel data goes through tma1-server's OTLP proxy (`/v1/otlp/*`), which forwards to GreptimeDB (port 14000) and auto-injects the `x-greptime-pipeline-name: greptime_trace_v1` header for trace requests. Agents should send OTLP to `http://localhost:14318/v1/otlp`.
 
-Hook events from Claude Code arrive via `POST /api/hooks` (configured as command hooks in `~/.claude/settings.json`, using the auto-installed hook script at `~/.tma1/hooks/tma1-hook.sh` on Unix/macOS or `%USERPROFILE%\.tma1\hooks\tma1-hook.ps1` on Windows). Claude Code's HTTP hook type requires HTTPS, so command hooks with curl are used instead. Codex session logs are auto-discovered from `~/.codex/sessions/` without any hook configuration.
+Hook events from Claude Code arrive via `POST /api/hooks` (configured as command hooks in `~/.claude/settings.json`, using the auto-installed hook script at `~/.tma1/hooks/tma1-hook.sh` on Unix/macOS or `%USERPROFILE%\.tma1\hooks\tma1-hook.ps1` on Windows). Claude Code's HTTP hook type requires HTTPS, so command hooks with curl are used instead. Codex session logs are auto-discovered from `~/.codex/sessions/` without any hook configuration. Copilot CLI session logs are auto-discovered from `~/.copilot/session-state/` without any hook configuration.
 
 ## Data sources
 
-Five data paths, depending on the agent:
+Six data paths, depending on the agent:
 
 **Claude Code** → OTel metrics + logs + traces + hooks + JSONL transcripts:
 
@@ -116,6 +118,15 @@ Additionally, Claude Code hooks (configured in `~/.claude/settings.json` as comm
 Codex logs use `scope_name` (not `body`) as the event discriminator. Extract fields via `json_get_string(log_attributes, 'model')`, `json_get_int(log_attributes, 'input_token_count')`, etc.
 
 Additionally, Codex session logs at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` are auto-discovered and parsed by tma1-server. Tool calls, messages, and subagent hierarchy are extracted and stored in `tma1_hook_events` and `tma1_messages` (agent_source = 'codex'). The parser extracts `conversation_id` from `session_meta.payload.id` (= OTel `conversation.id`), emits `SubagentStop` on `task_complete` events, and captures `user_message` / `agent_message` events into `tma1_messages`. No hook configuration needed.
+
+**Copilot CLI** → JSONL session logs (no OTel):
+
+| Table | Type | Content |
+|-------|------|---------|
+| `tma1_hook_events` | Synthesized hook events | SessionStart / SessionEnd, PreToolUse / PostToolUse(Failure), SubagentStart / SubagentStop, TaskCompleted, SkillInvoked (agent_source = 'copilot_cli') |
+| `tma1_messages` | Conversation content | user / assistant / thinking messages with `output_tokens` (session_id LIKE 'cp:%') |
+
+Copilot CLI session logs at `~/.copilot/session-state/<sessionId>/events.jsonl` are auto-discovered and parsed by tma1-server. The on-disk directory name is the authoritative session ID (stored as `cp:<sessionId>`); restart-dedup relies on this invariant. Parses 10 event types: `session.start`, `session.shutdown`, `session.model_change`, `session.task_complete`, `user.message`, `assistant.message` (content + reasoningText → thinking), `tool.execution_{start,complete}` (success=false → `PostToolUseFailure`), `subagent.{started,completed}`, `skill.invoked`. Timestamps handle both RFC3339 and Copilot CLI's `MM/DD/YYYY HH:mm:ss` UTC format. No hook configuration needed.
 
 **OpenClaw** → OTel traces + metrics:
 
@@ -165,7 +176,7 @@ Source columns use GenAI semantic conventions:
 
 | Table | Content |
 |-------|---------|
-| `tma1_hook_events` | All 27 CC hook event types (tool calls, subagent lifecycle, session start/end, compaction, permissions, file changes, tasks, etc.) + Codex JSONL parsing. Columns include `conversation_id`, `permission_mode`, `metadata` (JSON blob for event-specific fields). append-only, SKIPPING INDEX on session_id, INVERTED INDEX on event_type/agent_source. |
+| `tma1_hook_events` | All 27 CC hook event types (tool calls, subagent lifecycle, session start/end, compaction, permissions, file changes, tasks, etc.) + Codex / Copilot CLI / OpenClaw JSONL parsing. Columns include `conversation_id`, `permission_mode`, `metadata` (JSON blob for event-specific fields). append-only, SKIPPING INDEX on session_id, INVERTED INDEX on event_type/agent_source. |
 | `tma1_messages` | Conversation content: user/assistant/thinking messages, tool_use/tool_result (from JSONL transcripts). Columns include `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens` (from CC JSONL assistant message usage). append-only, FULLTEXT INDEX on content for keyword search via `matches_term()`. |
 
 ## Commands
@@ -238,6 +249,7 @@ On first start, tma1 writes a default GreptimeDB config to `~/.tma1/config/stand
 | Transcript watcher (CC JSONL) | `server/internal/transcript/watcher.go` |
 | Codex session parser | `server/internal/transcript/codex.go` |
 | OpenClaw session parser | `server/internal/transcript/openclaw.go` |
+| Copilot CLI session parser | `server/internal/transcript/copilot_cli.go` — `~/.copilot/session-state/`, dir-name = session ID, restart-dedup via DB query |
 | Dashboard UI | `server/web/index.html` |
 | Sessions view JS | `server/web/js/sessions.js` — orchestrator (KPI cards, session list, detail loading, search) |
 | Sessions sub-modules | `server/web/js/sessions-{stats,detail,insights,waterfall,timeline}.js` — stats computation, detail overlay, insight panels, waterfall chart, timeline rendering |
@@ -247,6 +259,7 @@ On first start, tma1 writes a default GreptimeDB config to `~/.tma1/config/stand
 | Settings endpoint | `server/internal/handler/settings.go` — `GET/POST /api/settings` (read/write server config, hot-reload LLM) |
 | Settings persistence | `server/internal/config/settings.go` — Load/save `~/.tma1/settings.json`, env var override logic |
 | Codex view JS | `server/web/js/codex.js` |
+| Copilot CLI view JS | `server/web/js/copilot-cli.js` (`gcp_*` functions) |
 | OpenClaw view JS | `server/web/js/openclaw.js` |
 | Embedded FS declaration | `server/web/web.go` |
 | Landing page | `site/src/pages/index.astro` |
