@@ -142,6 +142,7 @@ async function sess_loadList() {
     var sourceBadge;
     if (agentSrc === 'codex') sourceBadge = '<span class="badge badge-codex">Codex</span>';
     else if (agentSrc === 'openclaw') sourceBadge = '<span class="badge badge-oc">OC</span>';
+    else if (agentSrc === 'copilot_cli') sourceBadge = '<span class="badge badge-copilot">GH</span>';
     else sourceBadge = '<span class="badge badge-cc">CC</span>';
     var costStr = costMap[sid] != null ? fmtCost(costMap[sid]) : '\u2014';
 
@@ -217,12 +218,12 @@ async function sess_loadDetail(sessionId, agentSource) {
     query(
       "SELECT ts, session_id, event_type, agent_source, tool_name, tool_input, tool_result, " +
       "tool_use_id, agent_id, agent_type, notification_type, \"message\", cwd, permission_mode, metadata, conversation_id " +
-      "FROM tma1_hook_events WHERE session_id = '" + sid + "' ORDER BY ts ASC LIMIT 5000"
+      "FROM tma1_hook_events WHERE session_id = '" + sid + "' ORDER BY ts ASC LIMIT 50000"
     ).catch(function() { return null; }),
     query(
       "SELECT ts, session_id, message_type, tool_name, tool_use_id, content, model, " +
       "input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, duration_ms " +
-      "FROM tma1_messages WHERE session_id = '" + sid + "' ORDER BY ts ASC LIMIT 5000"
+      "FROM tma1_messages WHERE session_id = '" + sid + "' ORDER BY ts ASC LIMIT 50000"
     ).catch(function() { return null; }),
   ]);
   if (sessDetailVersion !== myVersion) return;
@@ -437,7 +438,7 @@ async function sess_search() {
     if (content.length > 200) content = content.slice(0, 200) + '\u2026';
     var label = d.tool_name || d.msg_type || '';
     var sSrc = d.agent_source || '';
-    var sBadgeCls = sSrc === 'codex' ? 'badge-codex' : sSrc === 'openclaw' ? 'badge-oc' : 'badge-cc';
+    var sBadgeCls = sSrc === 'codex' ? 'badge-codex' : sSrc === 'openclaw' ? 'badge-oc' : sSrc === 'copilot_cli' ? 'badge-copilot' : 'badge-cc';
     html += '<div class="search-result-item clickable" onclick="sess_openDetail(\x27' + escapeJSString(d.session_id) + '\x27,\x27' + escapeJSString(sSrc) + '\x27,' + (ms || 0) + ')">';
     html += '<div class="search-result-meta"><span class="badge ' + sBadgeCls + '">' + escapeHTML((d.session_id || '').slice(0, 8)) + '</span> ';
     if (label) html += '<span class="tl-tool-name" style="font-size:12px">' + escapeHTML(label) + '</span> ';
