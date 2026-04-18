@@ -227,3 +227,19 @@ function sess_highlightAPICall(fingerprint) {
   best.classList.add('tl-highlight');
   best.scrollIntoView({ block: 'nearest' });
 }
+
+// Toggle the info popover shown next to tool-card duration labels. Closes any
+// other open popover and auto-dismisses on the next outside click.
+function sess_toggleDurPopover(e, info) {
+  e.stopPropagation();
+  var wasActive = info.classList.contains('active');
+  var opened = document.querySelectorAll('.tl-tool-dur-info.active');
+  for (var i = 0; i < opened.length; i++) opened[i].classList.remove('active');
+  if (wasActive) return;
+  info.classList.add('active');
+  setTimeout(function() {
+    document.addEventListener('click', function() {
+      info.classList.remove('active');
+    }, { once: true });
+  }, 0);
+}

@@ -1,5 +1,6 @@
 /* Sessions — timeline item rendering, filtering, and search helpers. */
-/* globals: escapeHTML, escapeJSString, t, tsToMs, sessTimelineData, fmtDurMs */
+/* globals: escapeHTML, escapeJSString, t, tsToMs, sessTimelineData, fmtDurMs,
+            sess_toggleDurPopover */
 
 // ── Timeline filter ───────────────────────────────────────────────────
 
@@ -69,7 +70,7 @@ function renderToolPair(tc, ts) {
   html += '<div class="tl-tool-card-header">';
   html += '<span class="tl-time">' + time + '</span>';
   html += '<span class="tl-tool-name">' + escapeHTML(tc.tool_name || 'unknown') + '</span>';
-  html += '<span class="tl-tool-dur" title="' + escapeHTML(durTitle) + '">' + durLabel + '</span>';
+  html += '<span class="tl-tool-dur">' + durLabel + '<span class="tl-tool-dur-info" role="button" tabindex="0" aria-label="' + escapeHTML(durTitle) + '" onclick="sess_toggleDurPopover(event, this)">\u24D8<span class="tl-tool-dur-popover" onclick="event.stopPropagation()">' + escapeHTML(durTitle) + '</span></span></span>';
   html += '<span class="tl-tool-status">' + statusIcon + '</span>';
   html += '</div>';
   if (argsSummary) html += '<div class="tl-tool-card-args">' + escapeHTML(argsSummary) + '</div>';

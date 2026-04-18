@@ -667,6 +667,12 @@ tr.active-trace td { background: var(--bg-hover); }
 .tl-tool-card { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 2px 0; background: var(--card-bg); }
 .tl-tool-card-header { display: flex; align-items: center; gap: 8px; }
 .tl-tool-dur { color: var(--text-dim); font-size: 11px; margin-left: auto; font-variant-numeric: tabular-nums; }
+.tl-tool-dur-info { position: relative; margin-left: 3px; color: var(--text-dim); opacity: 0.6; cursor: pointer; font-size: 11px; user-select: none; transition: opacity 0.15s, color 0.15s; }
+.tl-tool-dur-info:hover, .tl-tool-dur-info.active { opacity: 1; color: var(--blue); }
+.tl-tool-dur-popover { display: none; position: absolute; right: 0; top: calc(100% + 6px); width: 260px; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); color: var(--text); font-size: 11px; line-height: 1.5; font-weight: normal; text-align: left; white-space: normal; z-index: 50; cursor: default; }
+.tl-tool-dur-info:hover .tl-tool-dur-popover,
+.tl-tool-dur-info:focus-visible .tl-tool-dur-popover,
+.tl-tool-dur-info.active .tl-tool-dur-popover { display: block; }
 .tl-tool-status { font-size: 14px; }
 .tl-tool-card-ok { border-left: 3px solid var(--green); }
 .tl-tool-card-ok .tl-tool-status { color: var(--green); }
