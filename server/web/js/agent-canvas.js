@@ -7,7 +7,7 @@ var AgentCanvas = (function () {
   var DAMPING = 0.92, CENTER_K = 0.004, CHARGE_K = 3500;
   var PARTICLE_SPEED = 1.2;
   var BUBBLE_TTL = 4.0, MAX_BUBBLES = 4;
-  var TOOL_W = 150, TOOL_H = 30;
+  var TOOL_W = 180, TOOL_H = 42;
   var GRID_SPACING = 30;
   var BG_COLOR = '#050510';
 
@@ -48,6 +48,38 @@ var AgentCanvas = (function () {
   var agentToolCounts = {};
 
   // ── Scene Graph ──────────────────────────────────────────────
+
+  function toolArgHint(toolName, toolInput) {
+    if (!toolInput) return '';
+    var obj = toolInput;
+    if (typeof toolInput === 'string') {
+      try { obj = JSON.parse(toolInput); } catch (e) { return String(toolInput).slice(0, 40); }
+    }
+    if (!obj || typeof obj !== 'object') return '';
+    var tn = (toolName || '').toLowerCase();
+    var hint = '';
+    if (obj.path) hint = obj.path;
+    else if (obj.file_path) hint = obj.file_path;
+    else if (obj.pattern) hint = obj.pattern;
+    else if (obj.query) hint = obj.query;
+    else if (obj.command) hint = obj.command;
+    else if (obj.description) hint = obj.description;
+    else if (obj.url) hint = obj.url;
+    else if (obj.prompt) hint = obj.prompt;
+    else if (obj.sql) hint = obj.sql;
+    else {
+      // Fallback: first string value.
+      for (var k in obj) { if (typeof obj[k] === 'string') { hint = obj[k]; break; } }
+    }
+    hint = String(hint || '').replace(/\s+/g, ' ');
+    // Shorten long paths: keep last 2 segments.
+    if (/[\\\/]/.test(hint) && hint.length > 28) {
+      var parts = hint.split(/[\\\/]+/);
+      if (parts.length > 2) hint = '…/' + parts.slice(-2).join('/');
+    }
+    if (hint.length > 28) hint = hint.slice(0, 27) + '\u2026';
+    return hint;
+  }
 
   function addAgent(id, label, isMain) {
     if (agents[id]) return agents[id];
@@ -332,10 +364,17 @@ var AgentCanvas = (function () {
       // Error shake.
       var shakeX = tc.state === 'error' ? Math.sin(globalTime * 30) * 2 : 0;
 
-      ctx.fillStyle = '#e6edf3'; ctx.font = '10px system-ui,sans-serif';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      var displayName = tc.toolName.length > 18 ? tc.toolName.slice(0, 17) + '\u2026' : tc.toolName;
-      ctx.fillText(displayName, tx + 10 + shakeX, ty + TOOL_H / 2);
+      ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 11px system-ui,sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      var displayName = tc.toolName.length > 20 ? tc.toolName.slice(0, 19) + '\u2026' : tc.toolName;
+      ctx.fillText(displayName, tx + 10 + shakeX, ty + 6);
+
+      // Arg hint line (path, pattern, command preview, etc.).
+      var hint = toolArgHint(tc.toolName, tc.toolInput);
+      if (hint) {
+        ctx.fillStyle = '#8b949e'; ctx.font = '9px system-ui,sans-serif';
+        ctx.fillText(hint, tx + 10 + shakeX, ty + 23);
+      }
 
       // Spinning ring.
       if (tc.state === 'running') {

@@ -237,6 +237,53 @@ func (w *Watcher) loadCopilotCLIIngestedDirs() {
 	w.logger.Info("copilot-cli: loaded previously-ingested sessions", "count", len(copilotCLIIngestedDirs))
 }
 
+// fetchCopilotCLIMaxTs returns the max ts (ms) of events already persisted
+// for the given session, or 0 if none. Used to seed re-watch dedup so a
+// session that was partially ingested before server restart can resume
+// without double-inserting historical events.
+func (w *Watcher) fetchCopilotCLIMaxTs(sessionID string) int64 {
+	form := url.Values{}
+	dbSid := copilotCLISessionPrefix + sessionID
+	form.Set("sql", "SELECT MAX(ts) FROM tma1_hook_events WHERE session_id = '"+strings.ReplaceAll(dbSid, "'", "''")+"'")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := newPostRequest(ctx, w.sqlURL, form)
+	if err != nil {
+		return 0
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != 200 {
+		return 0
+	}
+	var output struct {
+		Output []struct {
+			Records struct {
+				Rows [][]json.RawMessage `json:"rows"`
+			} `json:"records"`
+		} `json:"output"`
+	}
+	if json.Unmarshal(body, &output) != nil {
+		return 0
+	}
+	if len(output.Output) == 0 || len(output.Output[0].Records.Rows) == 0 || len(output.Output[0].Records.Rows[0]) == 0 {
+		return 0
+	}
+	raw := output.Output[0].Records.Rows[0][0]
+	if string(raw) == "null" {
+		return 0
+	}
+	var n int64
+	if json.Unmarshal(raw, &n) == nil {
+		return n
+	}
+	return 0
+}
+
 func (w *Watcher) watchCopilotCLIWithActive(watcherKey, sessionID, filePath string, isActive bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -289,6 +336,9 @@ func (w *Watcher) tailCopilotCLIFile(ctx context.Context, watcherKey, sessionID,
 	defer f.Close()
 
 	fctx := &copilotCLIContext{sessionID: sessionID}
+	// Seed re-watch dedup threshold from DB: skip events we've already persisted.
+	fctx.skipUntilTsMs = w.fetchCopilotCLIMaxTs(sessionID)
+	fctx.lastTsMs = fctx.skipUntilTsMs
 
 	reader := bufio.NewReader(f)
 	var buf strings.Builder
@@ -352,11 +402,12 @@ type copilotCLIEvent struct {
 
 // copilotCLIContext tracks per-file state during parsing.
 type copilotCLIContext struct {
-	sessionID string
-	model     string // current model (updated by session.start and session.model_change)
-	cwd       string
-	live      bool  // true after initial backfill completes
-	lastTsMs  int64 // per-session monotonic timestamp (avoids global lastInsertTS collision)
+	sessionID      string
+	model          string // current model (updated by session.start and session.model_change)
+	cwd            string
+	live           bool  // true after initial backfill completes
+	lastTsMs       int64 // per-session monotonic timestamp (avoids global lastInsertTS collision)
+	skipUntilTsMs  int64 // events with raw ts <= this are skipped (re-watch dedup after server restart)
 }
 
 // parseCopilotCLITimestamp handles both RFC3339 and Copilot CLI's MM/DD/YYYY HH:mm:ss format.
@@ -419,6 +470,14 @@ func (w *Watcher) processCopilotCLILine(sessionID, line string, seen map[string]
 	ts := parseCopilotCLITimestamp(ev.Timestamp)
 	if ts.IsZero() {
 		ts = time.Now()
+	}
+
+	// Re-watch dedup: skip events already persisted in a previous run.
+	// skipUntilTsMs is seeded from DB at watcher start; events with raw
+	// timestamp <= that are drops (their IDs are recorded in `seen` above
+	// so subsequent lookups still work for cross-event references).
+	if fctx.skipUntilTsMs > 0 && ts.UnixMilli() <= fctx.skipUntilTsMs {
+		return
 	}
 
 	// Intentionally unhandled event types: hook.start, hook.end, session.warning,
