@@ -155,18 +155,18 @@ func (w *Watcher) scanCopilotCLISessionsWithAge(baseDir string, activeAge time.D
 		if alreadyWatching {
 			continue
 		}
-		// Skip sessions already fully ingested into the DB from a previous run.
-		// Trade-off: if Copilot CLI continued writing to this file while the server
-		// was down, those tail events will be missed. Acceptable for now — the
-		// alternative is persisting per-file offsets.
-		if copilotCLIDirIngested(c.id) {
+		isActive := now.Sub(c.mod) < copilotCLIActiveAge
+		// Skip sessions already fully ingested into the DB from a previous run
+		// UNLESS the file has been recently modified — in which case the CLI
+		// may still be writing events we haven't captured yet (watcher timed
+		// out on idle but user resumed activity). The preserved per-session
+		// `seen` map in w.sessions ensures we don't double-insert.
+		if !isActive && copilotCLIDirIngested(c.id) {
 			continue
 		}
 		if activeCount+newWatchers >= maxConcurrentWatchers {
 			break // defer remaining to next scan cycle
 		}
-		// Old completed sessions stop immediately after backfill (no idle wait).
-		isActive := now.Sub(c.mod) < copilotCLIActiveAge
 		markCopilotCLIDirIngested(c.id)
 		w.watchCopilotCLIWithActive(watcherKey, c.id, c.path, isActive)
 		newWatchers++

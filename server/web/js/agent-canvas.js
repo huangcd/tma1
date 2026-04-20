@@ -3,11 +3,11 @@
 
 var AgentCanvas = (function () {
   // ── Constants ────────────────────────────────────────────────
-  var MAIN_R = 28, SUB_R = 20;
-  var DAMPING = 0.92, CENTER_K = 0.005, CHARGE_K = 800;
+  var MAIN_R = 40, SUB_R = 32;
+  var DAMPING = 0.92, CENTER_K = 0.004, CHARGE_K = 3500;
   var PARTICLE_SPEED = 1.2;
   var BUBBLE_TTL = 4.0, MAX_BUBBLES = 4;
-  var TOOL_W = 140, TOOL_H = 30;
+  var TOOL_W = 150, TOOL_H = 30;
   var GRID_SPACING = 30;
   var BG_COLOR = '#050510';
 
@@ -122,7 +122,7 @@ var AgentCanvas = (function () {
       if (!from || !to) continue;
       dx = to.x - from.x; dy = to.y - from.y;
       dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      diff = (dist - (from.r + to.r) * 3) * 0.01;
+      diff = (dist - (from.r + to.r) * 4.5) * 0.01;
       nx = dx / dist; ny = dy / dist;
       if (!from.pinned) { from.vx += nx * diff; from.vy += ny * diff; }
       if (!to.pinned) { to.vx -= nx * diff; to.vy -= ny * diff; }
@@ -302,7 +302,7 @@ var AgentCanvas = (function () {
       // Label with shadow.
       ctx.save();
       ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4;
-      ctx.fillStyle = '#e6edf3'; ctx.font = (a.r > 22 ? 'bold 11' : '9') + 'px system-ui,sans-serif';
+      ctx.fillStyle = '#e6edf3'; ctx.font = (a.isMain ? 'bold 13' : 'bold 11') + 'px system-ui,sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(a.label, a.x, a.y);
       ctx.restore();
@@ -546,6 +546,10 @@ var AgentCanvas = (function () {
       var subId = ev.agent_id || ('sub_' + Date.now());
       var subLabel = ev.agent_type || 'subagent';
       var subNode = addAgent(subId, subLabel, false);
+      // If agent was pre-created by an earlier tool event (which only carried
+      // agent_id, not agent_type), its label is a truncated id — upgrade it
+      // now that we know the real agent_type.
+      if (ev.agent_type) subNode.label = subLabel;
       subNode.agentType = ev.agent_type || '';
       subNode.startTs = ev.ts || Date.now();
       var ek = addEdge(mainId, subId);
