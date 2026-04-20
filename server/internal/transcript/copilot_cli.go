@@ -343,6 +343,11 @@ type copilotCLIEvent struct {
 	ID        string          `json:"id"`
 	Timestamp string          `json:"timestamp"`
 	ParentID  *string         `json:"parentId"`
+	// AgentID is populated on events emitted inside a sub-agent's context
+	// (e.g. tool.execution_start/complete, assistant.message). Its value
+	// equals the toolCallId of the enclosing subagent.started event.
+	// Empty/absent for events emitted by the main agent.
+	AgentID string `json:"agentId"`
 }
 
 // copilotCLIContext tracks per-file state during parsing.
@@ -550,9 +555,9 @@ func (w *Watcher) handleCopilotCLIToolStart(ts time.Time, ev copilotCLIEvent, fc
 	}
 
 	argsStr := truncate(string(data.Arguments), maxToolInput)
-	w.insertCopilotCLIHookEvent(ts, fctx, "PreToolUse", data.ToolName, argsStr, data.ToolCallID, "", nil)
+	w.insertCopilotCLIHookEventFull(ts, fctx, "PreToolUse", data.ToolName, argsStr, data.ToolCallID, "", ev.AgentID, "", nil, "")
 	if fctx.live {
-		w.broadcastHookEvent(fctx.dbSessionID(), "PreToolUse", data.ToolName, argsStr, data.ToolCallID, "", "", "")
+		w.broadcastHookEvent(fctx.dbSessionID(), "PreToolUse", data.ToolName, argsStr, data.ToolCallID, "", ev.AgentID, "")
 	}
 }
 
@@ -580,9 +585,9 @@ func (w *Watcher) handleCopilotCLIToolComplete(ts time.Time, ev copilotCLIEvent,
 	}
 
 	resultStr := truncate(data.Result.Content, maxToolContent)
-	w.insertCopilotCLIHookEvent(ts, fctx, eventType, "", "", data.ToolCallID, resultStr, nil)
+	w.insertCopilotCLIHookEventFull(ts, fctx, eventType, "", "", data.ToolCallID, resultStr, ev.AgentID, "", nil, "")
 	if fctx.live {
-		w.broadcastHookEvent(fctx.dbSessionID(), eventType, "", "", data.ToolCallID, resultStr, "", "")
+		w.broadcastHookEvent(fctx.dbSessionID(), eventType, "", "", data.ToolCallID, resultStr, ev.AgentID, "")
 	}
 }
 
