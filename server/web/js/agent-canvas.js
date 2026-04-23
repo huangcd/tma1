@@ -56,7 +56,6 @@ var AgentCanvas = (function () {
       try { obj = JSON.parse(toolInput); } catch (e) { return String(toolInput).slice(0, 40); }
     }
     if (!obj || typeof obj !== 'object') return '';
-    var tn = (toolName || '').toLowerCase();
     var hint = '';
     if (obj.path) hint = obj.path;
     else if (obj.file_path) hint = obj.file_path;
@@ -73,8 +72,8 @@ var AgentCanvas = (function () {
     }
     hint = String(hint || '').replace(/\s+/g, ' ');
     // Shorten long paths: keep last 2 segments.
-    if (/[\\\/]/.test(hint) && hint.length > 28) {
-      var parts = hint.split(/[\\\/]+/);
+    if (/[\\/]/.test(hint) && hint.length > 28) {
+      var parts = hint.split(/[\\/]+/);
       if (parts.length > 2) hint = '…/' + parts.slice(-2).join('/');
     }
     if (hint.length > 28) hint = hint.slice(0, 27) + '\u2026';
