@@ -369,7 +369,12 @@ var AgentCanvas = (function () {
       ctx.fillText(displayName, tx + 10 + shakeX, ty + 6);
 
       // Arg hint line (path, pattern, command preview, etc.).
-      var hint = toolArgHint(tc.toolName, tc.toolInput);
+      if (tc.argHintToolName !== tc.toolName || tc.argHintToolInput !== tc.toolInput) {
+        tc.argHint = toolArgHint(tc.toolName, tc.toolInput);
+        tc.argHintToolName = tc.toolName;
+        tc.argHintToolInput = tc.toolInput;
+      }
+      var hint = tc.argHint;
       if (hint) {
         ctx.fillStyle = '#8b949e'; ctx.font = '9px system-ui,sans-serif';
         ctx.fillText(hint, tx + 10 + shakeX, ty + 23);

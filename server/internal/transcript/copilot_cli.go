@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -277,11 +278,57 @@ func (w *Watcher) fetchCopilotCLIMaxTs(sessionID string) int64 {
 	if string(raw) == "null" {
 		return 0
 	}
-	var n int64
-	if json.Unmarshal(raw, &n) == nil {
-		return n
+	if ms, ok := parseSQLTimestampMs(raw); ok {
+		return ms
 	}
+	w.logger.Debug("copilot-cli: failed to parse max ts", "session", dbSid, "raw", string(raw))
 	return 0
+}
+
+func parseSQLTimestampMs(raw json.RawMessage) (int64, bool) {
+	var n float64
+	if json.Unmarshal(raw, &n) == nil {
+		return normalizeUnixTimestampMs(n), true
+	}
+
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return 0, false
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	if n, err := strconv.ParseFloat(s, 64); err == nil {
+		return normalizeUnixTimestampMs(n), true
+	}
+
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.999999",
+		"2006-01-02 15:04:05.999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if t, err := time.ParseInLocation(layout, s, time.UTC); err == nil {
+			return t.UnixMilli(), true
+		}
+	}
+	return 0, false
+}
+
+func normalizeUnixTimestampMs(v float64) int64 {
+	switch {
+	case v > 1e18:
+		return int64(v / 1e6) // nanoseconds
+	case v > 1e15:
+		return int64(v / 1e3) // microseconds
+	case v > 1e12:
+		return int64(v) // milliseconds
+	default:
+		return int64(v * 1000) // seconds
+	}
 }
 
 func (w *Watcher) watchCopilotCLIWithActive(watcherKey, sessionID, filePath string, isActive bool) {
@@ -402,12 +449,12 @@ type copilotCLIEvent struct {
 
 // copilotCLIContext tracks per-file state during parsing.
 type copilotCLIContext struct {
-	sessionID      string
-	model          string // current model (updated by session.start and session.model_change)
-	cwd            string
-	live           bool  // true after initial backfill completes
-	lastTsMs       int64 // per-session monotonic timestamp (avoids global lastInsertTS collision)
-	skipUntilTsMs  int64 // events with raw ts <= this are skipped (re-watch dedup after server restart)
+	sessionID     string
+	model         string // current model (updated by session.start and session.model_change)
+	cwd           string
+	live          bool  // true after initial backfill completes
+	lastTsMs      int64 // per-session monotonic timestamp (avoids global lastInsertTS collision)
+	skipUntilTsMs int64 // events with raw ts <= this are skipped (re-watch dedup after server restart)
 }
 
 // parseCopilotCLITimestamp handles both RFC3339 and Copilot CLI's MM/DD/YYYY HH:mm:ss format.
